@@ -1,7 +1,7 @@
 ﻿import React, { useState } from 'react';
-import { Check, ArrowRight, SkipForward } from 'lucide-react';
+import { Check, ArrowRight, SkipForward, ArrowLeft } from 'lucide-react';
 
-const GenreSelection = ({ onContinue, onSkip }) => {
+const GenreSelection = ({ onContinue, onSkip, onBack }) => {
    const [selectedGenres, setSelectedGenres] = useState([]);
 
    const genres = [
@@ -39,7 +39,7 @@ const GenreSelection = ({ onContinue, onSkip }) => {
       );
    };
 
-   const canContinue = selectedGenres.length >= 2;
+   const canContinue = selectedGenres.length >= 1;
 
    return (
       <div className="min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-fuchsia-900 p-6">
@@ -72,15 +72,13 @@ const GenreSelection = ({ onContinue, onSkip }) => {
                   What music genres do you love?
                </h2>
                <p className="text-xl text-white/80">
-                  Select at least 2-3 favorite genres
+                  Select at least 1 favorite genre
                </p>
                <div className="flex items-center justify-center gap-4">
                   <p className="text-white/60">Selected: {selectedGenres.length}</p>
-                  {selectedGenres.length >= 2 && selectedGenres.length < 3 && (
-                     <p className="text-yellow-300 text-sm">Select 1 more for better recommendations</p>
-                  )}
-                  {selectedGenres.length >= 3 && (
-                     <p className="text-green-300 text-sm">✓ Great selection!</p>
+                  {/* Updated validation text logic */}
+                  {selectedGenres.length >= 1 && (
+                     <p className="text-green-300 text-sm">✓ Good to go!</p>
                   )}
                </div>
             </div>
@@ -92,8 +90,8 @@ const GenreSelection = ({ onContinue, onSkip }) => {
                      key={genre.id}
                      onClick={() => toggleGenre(genre.id)}
                      className={`relative group overflow-hidden rounded-2xl transition-all duration-300 aspect-square ${selectedGenres.includes(genre.id)
-                           ? 'scale-105 shadow-2xl ring-4 ring-white/50'
-                           : 'hover:scale-105 shadow-lg'
+                        ? 'scale-105 shadow-2xl ring-4 ring-white/50'
+                        : 'hover:scale-105 shadow-lg'
                         }`}
                   >
                      {/* Background Image */}
@@ -109,8 +107,8 @@ const GenreSelection = ({ onContinue, onSkip }) => {
                         />
                         {/* Gradient Overlay */}
                         <div className={`absolute inset-0 bg-gradient-to-t ${selectedGenres.includes(genre.id)
-                              ? 'from-black/80 via-black/40 to-transparent'
-                              : 'from-black/70 via-black/30 to-transparent group-hover:from-black/80'
+                           ? 'from-black/80 via-black/40 to-transparent'
+                           : 'from-black/70 via-black/30 to-transparent group-hover:from-black/80'
                            } transition-all duration-300`}></div>
                      </div>
 
@@ -130,8 +128,8 @@ const GenreSelection = ({ onContinue, onSkip }) => {
 
                      {/* Hover Border Effect */}
                      <div className={`absolute inset-0 rounded-2xl transition-all duration-300 ${selectedGenres.includes(genre.id)
-                           ? 'ring-4 ring-white/50'
-                           : 'ring-0 group-hover:ring-2 group-hover:ring-white/30'
+                        ? 'ring-4 ring-white/50'
+                        : 'ring-0 group-hover:ring-2 group-hover:ring-white/30'
                         }`}></div>
                   </button>
                ))}
@@ -139,6 +137,16 @@ const GenreSelection = ({ onContinue, onSkip }) => {
 
             {/* Action Buttons */}
             <div className="flex gap-4 max-w-2xl mx-auto">
+               {onBack && (
+                  <button
+                     onClick={onBack}
+                     className="bg-white/10 backdrop-blur-lg text-white px-6 py-4 rounded-2xl font-medium hover:bg-white/20 transition-all flex items-center justify-center gap-2"
+                  >
+                     <ArrowLeft className="w-5 h-5" />
+                     <span>Back</span>
+                  </button>
+               )}
+
                <button
                   onClick={() => onSkip(selectedGenres)}
                   className="flex-1 bg-white/10 backdrop-blur-lg text-white py-4 rounded-2xl font-medium hover:bg-white/20 transition-all flex items-center justify-center gap-2"
@@ -150,8 +158,8 @@ const GenreSelection = ({ onContinue, onSkip }) => {
                   onClick={() => onContinue(selectedGenres)}
                   disabled={!canContinue}
                   className={`flex-1 py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${canContinue
-                        ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:shadow-2xl hover:shadow-pink-500/50 hover:scale-105'
-                        : 'bg-white/10 text-white/50 cursor-not-allowed'
+                     ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:shadow-2xl hover:shadow-pink-500/50 hover:scale-105'
+                     : 'bg-white/10 text-white/50 cursor-not-allowed'
                      }`}
                >
                   <span>Continue</span>
@@ -159,10 +167,9 @@ const GenreSelection = ({ onContinue, onSkip }) => {
                </button>
             </div>
 
-            {/* Requirement Message */}
-            {!canContinue && selectedGenres.length > 0 && (
+            {!canContinue && selectedGenres.length === 0 && (
                <p className="text-center text-white/60 text-sm mt-4">
-                  Select at least {2 - selectedGenres.length} more genre{2 - selectedGenres.length !== 1 ? 's' : ''} to continue
+                  Select at least 1 genre to continue
                </p>
             )}
          </div>

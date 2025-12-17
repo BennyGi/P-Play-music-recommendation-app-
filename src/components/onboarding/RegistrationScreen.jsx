@@ -1,5 +1,5 @@
-﻿import React, { useState } from 'react';
-import { Music, ArrowRight, User, Mail, Calendar, MapPin, Lock, Eye, EyeOff } from 'lucide-react';
+﻿import React, { useState, useRef, useEffect } from 'react';
+import { Music, ArrowRight, User, Mail, Calendar, MapPin, Lock, Eye, EyeOff, ChevronDown } from 'lucide-react';
 
 const RegistrationScreen = ({ onComplete }) => {
    const [userData, setUserData] = useState({
@@ -14,97 +14,172 @@ const RegistrationScreen = ({ onComplete }) => {
    const [errors, setErrors] = useState({});
    const [showPassword, setShowPassword] = useState(false);
 
+   const [isCountryOpen, setIsCountryOpen] = useState(false);
+   const dropdownRef = useRef(null);
+
+   // Close dropdown when clicking outside
+   useEffect(() => {
+      const handleClickOutside = (event) => {
+         if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            setIsCountryOpen(false);
+         }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+   }, []);
+
+   const countries = [
+      { code: 'AF', name: 'Afghanistan' },
+      { code: 'AL', name: 'Albania' },
+      { code: 'DZ', name: 'Algeria' },
+      { code: 'AR', name: 'Argentina' },
+      { code: 'AM', name: 'Armenia' },
+      { code: 'AU', name: 'Australia' },
+      { code: 'AT', name: 'Austria' },
+      { code: 'AZ', name: 'Azerbaijan' },
+      { code: 'BH', name: 'Bahrain' },
+      { code: 'BD', name: 'Bangladesh' },
+      { code: 'BY', name: 'Belarus' },
+      { code: 'BE', name: 'Belgium' },
+      { code: 'BR', name: 'Brazil' },
+      { code: 'BG', name: 'Bulgaria' },
+      { code: 'CA', name: 'Canada' },
+      { code: 'CL', name: 'Chile' },
+      { code: 'CN', name: 'China' },
+      { code: 'CO', name: 'Colombia' },
+      { code: 'CR', name: 'Costa Rica' },
+      { code: 'HR', name: 'Croatia' },
+      { code: 'CY', name: 'Cyprus' },
+      { code: 'CZ', name: 'Czech Republic' },
+      { code: 'DK', name: 'Denmark' },
+      { code: 'DO', name: 'Dominican Republic' },
+      { code: 'EC', name: 'Ecuador' },
+      { code: 'EG', name: 'Egypt' },
+      { code: 'SV', name: 'El Salvador' },
+      { code: 'EE', name: 'Estonia' },
+      { code: 'ET', name: 'Ethiopia' },
+      { code: 'FI', name: 'Finland' },
+      { code: 'FR', name: 'France' },
+      { code: 'GE', name: 'Georgia' },
+      { code: 'DE', name: 'Germany' },
+      { code: 'GH', name: 'Ghana' },
+      { code: 'GR', name: 'Greece' },
+      { code: 'GT', name: 'Guatemala' },
+      { code: 'HN', name: 'Honduras' },
+      { code: 'HK', name: 'Hong Kong' },
+      { code: 'HU', name: 'Hungary' },
+      { code: 'IS', name: 'Iceland' },
+      { code: 'IN', name: 'India' },
+      { code: 'ID', name: 'Indonesia' },
+      { code: 'IR', name: 'Iran' },
+      { code: 'IQ', name: 'Iraq' },
+      { code: 'IE', name: 'Ireland' },
+      { code: 'IL', name: 'Israel' },
+      { code: 'IT', name: 'Italy' },
+      { code: 'JM', name: 'Jamaica' },
+      { code: 'JP', name: 'Japan' },
+      { code: 'JO', name: 'Jordan' },
+      { code: 'KZ', name: 'Kazakhstan' },
+      { code: 'KE', name: 'Kenya' },
+      { code: 'KW', name: 'Kuwait' },
+      { code: 'LV', name: 'Latvia' },
+      { code: 'LB', name: 'Lebanon' },
+      { code: 'LT', name: 'Lithuania' },
+      { code: 'LU', name: 'Luxembourg' },
+      { code: 'MY', name: 'Malaysia' },
+      { code: 'MX', name: 'Mexico' },
+      { code: 'MA', name: 'Morocco' },
+      { code: 'NL', name: 'Netherlands' },
+      { code: 'NZ', name: 'New Zealand' },
+      { code: 'NG', name: 'Nigeria' },
+      { code: 'NO', name: 'Norway' },
+      { code: 'OM', name: 'Oman' },
+      { code: 'PK', name: 'Pakistan' },
+      { code: 'PA', name: 'Panama' },
+      { code: 'PY', name: 'Paraguay' },
+      { code: 'PE', name: 'Peru' },
+      { code: 'PH', name: 'Philippines' },
+      { code: 'PL', name: 'Poland' },
+      { code: 'PT', name: 'Portugal' },
+      { code: 'QA', name: 'Qatar' },
+      { code: 'RO', name: 'Romania' },
+      { code: 'RU', name: 'Russia' },
+      { code: 'SA', name: 'Saudi Arabia' },
+      { code: 'RS', name: 'Serbia' },
+      { code: 'SG', name: 'Singapore' },
+      { code: 'SK', name: 'Slovakia' },
+      { code: 'SI', name: 'Slovenia' },
+      { code: 'ZA', name: 'South Africa' },
+      { code: 'KR', name: 'South Korea' },
+      { code: 'ES', name: 'Spain' },
+      { code: 'LK', name: 'Sri Lanka' },
+      { code: 'SE', name: 'Sweden' },
+      { code: 'CH', name: 'Switzerland' },
+      { code: 'TW', name: 'Taiwan' },
+      { code: 'TH', name: 'Thailand' },
+      { code: 'TN', name: 'Tunisia' },
+      { code: 'TR', name: 'Turkey' },
+      { code: 'UA', name: 'Ukraine' },
+      { code: 'AE', name: 'United Arab Emirates' },
+      { code: 'GB', name: 'United Kingdom' },
+      { code: 'US', name: 'United States' },
+      { code: 'UY', name: 'Uruguay' },
+      { code: 'VE', name: 'Venezuela' },
+      { code: 'VN', name: 'Vietnam' },
+      { code: 'YE', name: 'Yemen' }
+   ];
+
    const validatePassword = (password) => {
       const errors = [];
-
-      // Check for non-English characters FIRST (highest priority)
       if (!/^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]*$/.test(password) && password.length > 0) {
          return ['Password must contain only English letters'];
       }
-
-      if (password.length < 8) {
-         errors.push('At least 8 characters');
-      }
-
-      if (!/[A-Z]/.test(password)) {
-         errors.push('At least 1 uppercase letter');
-      }
-
-      if (!/[0-9]/.test(password)) {
-         errors.push('At least 1 number');
-      }
-
-      if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-         errors.push('At least 1 special character');
-      }
-
+      if (password.length < 8) errors.push('At least 8 characters');
+      if (!/[A-Z]/.test(password)) errors.push('At least 1 uppercase letter');
+      if (!/[0-9]/.test(password)) errors.push('At least 1 number');
+      if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) errors.push('At least 1 special character');
       return errors;
    };
 
    const validateForm = () => {
       const newErrors = {};
-
-      if (!userData.firstName.trim()) {
-         newErrors.firstName = 'First name is required';
-      }
-
-      if (!userData.lastName.trim()) {
-         newErrors.lastName = 'Last name is required';
-      }
-
+      if (!userData.firstName.trim()) newErrors.firstName = 'First name is required';
+      if (!userData.lastName.trim()) newErrors.lastName = 'Last name is required';
       if (!userData.email.trim()) {
          newErrors.email = 'Email is required';
       } else if (!/\S+@\S+\.\S+/.test(userData.email)) {
          newErrors.email = 'Email is invalid';
       }
-
-      // Password validation
       if (!userData.password) {
          newErrors.password = 'Password is required';
       } else {
          const passwordErrors = validatePassword(userData.password);
-         if (passwordErrors.length > 0) {
-            newErrors.password = passwordErrors.join(', ');
-         }
+         if (passwordErrors.length > 0) newErrors.password = passwordErrors.join(', ');
       }
-
-      if (!userData.birthDate) {
-         newErrors.birthDate = 'Birth date is required';
-      }
-
-      if (!userData.country) {
-         newErrors.country = 'Country is required';
-      }
+      if (!userData.birthDate) newErrors.birthDate = 'Birth date is required';
+      if (!userData.country) newErrors.country = 'Country is required';
 
       setErrors(newErrors);
       return Object.keys(newErrors).length === 0;
    };
 
    const handleSubmit = () => {
-      if (validateForm()) {
-         onComplete(userData);
-      }
+      if (validateForm()) onComplete(userData);
    };
 
    const handleChange = (field, value) => {
       setUserData(prev => ({ ...prev, [field]: value }));
-      if (errors[field]) {
-         setErrors(prev => ({ ...prev, [field]: '' }));
-      }
+      if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
    };
 
    const getPasswordStrength = () => {
       if (!userData.password) return { strength: 0, label: '', color: '' };
-
-      // Check for non-English characters first
       if (!/^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]*$/.test(userData.password)) {
          return { strength: 0, label: 'Invalid', color: 'bg-red-500' };
       }
-
       const passwordErrors = validatePassword(userData.password);
       const totalRequirements = 4;
       const metRequirements = totalRequirements - passwordErrors.length;
-
       if (metRequirements === 0) return { strength: 0, label: '', color: '' };
       if (metRequirements === 1) return { strength: 25, label: 'Weak', color: 'bg-red-500' };
       if (metRequirements === 2) return { strength: 50, label: 'Fair', color: 'bg-yellow-500' };
@@ -113,6 +188,7 @@ const RegistrationScreen = ({ onComplete }) => {
    };
 
    const passwordStrength = getPasswordStrength();
+   const selectedCountry = countries.find(c => c.code === userData.country);
 
    return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-6">
@@ -143,9 +219,7 @@ const RegistrationScreen = ({ onComplete }) => {
                            } focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/50`}
                         placeholder="John"
                      />
-                     {errors.firstName && (
-                        <p className="text-red-300 text-sm mt-1">{errors.firstName}</p>
-                     )}
+                     {errors.firstName && <p className="text-red-300 text-sm mt-1">{errors.firstName}</p>}
                   </div>
 
                   {/* Last Name */}
@@ -162,9 +236,7 @@ const RegistrationScreen = ({ onComplete }) => {
                            } focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/50`}
                         placeholder="Doe"
                      />
-                     {errors.lastName && (
-                        <p className="text-red-300 text-sm mt-1">{errors.lastName}</p>
-                     )}
+                     {errors.lastName && <p className="text-red-300 text-sm mt-1">{errors.lastName}</p>}
                   </div>
 
                   {/* Email */}
@@ -181,9 +253,7 @@ const RegistrationScreen = ({ onComplete }) => {
                            } focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/50`}
                         placeholder="john.doe@example.com"
                      />
-                     {errors.email && (
-                        <p className="text-red-300 text-sm mt-1">{errors.email}</p>
-                     )}
+                     {errors.email && <p className="text-red-300 text-sm mt-1">{errors.email}</p>}
                   </div>
 
                   {/* Password */}
@@ -206,15 +276,10 @@ const RegistrationScreen = ({ onComplete }) => {
                            onClick={() => setShowPassword(!showPassword)}
                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors"
                         >
-                           {showPassword ? (
-                              <EyeOff className="w-5 h-5" />
-                           ) : (
-                              <Eye className="w-5 h-5" />
-                           )}
+                           {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
                      </div>
 
-                     {/* Password Strength Bar */}
                      {userData.password && (
                         <div className="mt-2 space-y-2">
                            <div className="flex items-center gap-2">
@@ -226,51 +291,38 @@ const RegistrationScreen = ({ onComplete }) => {
                               </div>
                               {passwordStrength.label && (
                                  <span className={`text-sm font-medium ${passwordStrength.strength === 100 ? 'text-green-300' :
-                                       passwordStrength.strength >= 75 ? 'text-blue-300' :
-                                          passwordStrength.strength >= 50 ? 'text-yellow-300' :
-                                             'text-red-300'
+                                    passwordStrength.strength >= 75 ? 'text-blue-300' :
+                                       passwordStrength.strength >= 50 ? 'text-yellow-300' :
+                                          'text-red-300'
                                     }`}>
                                     {passwordStrength.label}
                                  </span>
                               )}
                            </div>
-
-                           {/* Password Requirements */}
                            <div className="space-y-1">
-                              {/* Check for non-English characters first */}
                               {!/^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]*$/.test(userData.password) && userData.password.length > 0 ? (
                                  <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3">
                                     <p className="text-red-300 text-sm font-medium flex items-center gap-2">
                                        <span>⚠️</span>
                                        <span>Password must contain only English letters!</span>
                                     </p>
-                                    <p className="text-red-200/80 text-xs mt-1">
-                                       Please use only: a-z, A-Z, 0-9, and special characters (!@#$%^&* etc.)
-                                    </p>
+                                    <p className="text-red-200/80 text-xs mt-1">Please use only: a-z, A-Z, 0-9, and special characters</p>
                                  </div>
                               ) : (
                                  <>
                                     <p className="text-white/60 text-xs font-medium">Password must contain:</p>
                                     <div className="grid grid-cols-2 gap-1">
-                                       <div className={`text-xs flex items-center gap-1 ${userData.password.length >= 8 ? 'text-green-300' : 'text-white/60'
-                                          }`}>
-                                          <span>{userData.password.length >= 8 ? '✓' : '○'}</span>
-                                          <span>8+ characters</span>
+                                       <div className={`text-xs flex items-center gap-1 ${userData.password.length >= 8 ? 'text-green-300' : 'text-white/60'}`}>
+                                          <span>{userData.password.length >= 8 ? '✓' : '○'}</span><span>8+ characters</span>
                                        </div>
-                                       <div className={`text-xs flex items-center gap-1 ${/[A-Z]/.test(userData.password) ? 'text-green-300' : 'text-white/60'
-                                          }`}>
-                                          <span>{/[A-Z]/.test(userData.password) ? '✓' : '○'}</span>
-                                          <span>1 uppercase</span>
+                                       <div className={`text-xs flex items-center gap-1 ${/[A-Z]/.test(userData.password) ? 'text-green-300' : 'text-white/60'}`}>
+                                          <span>{/[A-Z]/.test(userData.password) ? '✓' : '○'}</span><span>1 uppercase</span>
                                        </div>
-                                       <div className={`text-xs flex items-center gap-1 ${/[0-9]/.test(userData.password) ? 'text-green-300' : 'text-white/60'
-                                          }`}>
-                                          <span>{/[0-9]/.test(userData.password) ? '✓' : '○'}</span>
-                                          <span>1 number</span>
+                                       <div className={`text-xs flex items-center gap-1 ${/[0-9]/.test(userData.password) ? 'text-green-300' : 'text-white/60'}`}>
+                                          <span>{/[0-9]/.test(userData.password) ? '✓' : '○'}</span><span>1 number</span>
                                        </div>
-                                       <div className={`text-xs flex items-center gap-1 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(userData.password) ? 'text-green-300' : 'text-white/60'
-                                          }`}>
-                                          <span>{/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(userData.password) ? '✓' : '○'}</span>
-                                          <span>1 special char</span>
+                                       <div className={`text-xs flex items-center gap-1 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(userData.password) ? 'text-green-300' : 'text-white/60'}`}>
+                                          <span>{/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(userData.password) ? '✓' : '○'}</span><span>1 special char</span>
                                        </div>
                                     </div>
                                  </>
@@ -278,10 +330,7 @@ const RegistrationScreen = ({ onComplete }) => {
                            </div>
                         </div>
                      )}
-
-                     {errors.password && (
-                        <p className="text-red-300 text-sm mt-1">{errors.password}</p>
-                     )}
+                     {errors.password && <p className="text-red-300 text-sm mt-1">{errors.password}</p>}
                   </div>
 
                   {/* Birth Date */}
@@ -297,126 +346,68 @@ const RegistrationScreen = ({ onComplete }) => {
                         className={`w-full px-4 py-3 rounded-xl bg-white/20 text-white placeholder-white/50 border ${errors.birthDate ? 'border-red-500' : 'border-white/30'
                            } focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/50`}
                      />
-                     {errors.birthDate && (
-                        <p className="text-red-300 text-sm mt-1">{errors.birthDate}</p>
-                     )}
+                     {errors.birthDate && <p className="text-red-300 text-sm mt-1">{errors.birthDate}</p>}
                   </div>
 
-                  {/* Country */}
-                  <div>
+                  {/* Country (Custom Dropdown for Flags) */}
+                  <div className="relative" ref={dropdownRef}>
                      <label className="block text-white font-medium mb-2 flex items-center gap-2">
                         <MapPin className="w-4 h-4" />
                         Country
                      </label>
-                     <select
-                        value={userData.country}
-                        onChange={(e) => handleChange('country', e.target.value)}
-                        className={`w-full px-4 py-3 rounded-xl bg-white/20 text-white border ${errors.country ? 'border-red-500' : 'border-white/30'
+
+                     <button
+                        type="button"
+                        onClick={() => setIsCountryOpen(!isCountryOpen)}
+                        className={`w-full px-4 py-3 rounded-xl bg-white/20 text-white text-left border flex items-center justify-between ${errors.country ? 'border-red-500' : 'border-white/30'
                            } focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/50`}
                      >
-                        <option value="" className="bg-gray-800">Select your country</option>
-                        <option value="AF" className="bg-gray-800">Afghanistan</option>
-                        <option value="AL" className="bg-gray-800">Albania</option>
-                        <option value="DZ" className="bg-gray-800">Algeria</option>
-                        <option value="AR" className="bg-gray-800">Argentina</option>
-                        <option value="AM" className="bg-gray-800">Armenia</option>
-                        <option value="AU" className="bg-gray-800">Australia</option>
-                        <option value="AT" className="bg-gray-800">Austria</option>
-                        <option value="AZ" className="bg-gray-800">Azerbaijan</option>
-                        <option value="BH" className="bg-gray-800">Bahrain</option>
-                        <option value="BD" className="bg-gray-800">Bangladesh</option>
-                        <option value="BY" className="bg-gray-800">Belarus</option>
-                        <option value="BE" className="bg-gray-800">Belgium</option>
-                        <option value="BR" className="bg-gray-800">Brazil</option>
-                        <option value="BG" className="bg-gray-800">Bulgaria</option>
-                        <option value="CA" className="bg-gray-800">Canada</option>
-                        <option value="CL" className="bg-gray-800">Chile</option>
-                        <option value="CN" className="bg-gray-800">China</option>
-                        <option value="CO" className="bg-gray-800">Colombia</option>
-                        <option value="CR" className="bg-gray-800">Costa Rica</option>
-                        <option value="HR" className="bg-gray-800">Croatia</option>
-                        <option value="CY" className="bg-gray-800">Cyprus</option>
-                        <option value="CZ" className="bg-gray-800">Czech Republic</option>
-                        <option value="DK" className="bg-gray-800">Denmark</option>
-                        <option value="DO" className="bg-gray-800">Dominican Republic</option>
-                        <option value="EC" className="bg-gray-800">Ecuador</option>
-                        <option value="EG" className="bg-gray-800">Egypt</option>
-                        <option value="SV" className="bg-gray-800">El Salvador</option>
-                        <option value="EE" className="bg-gray-800">Estonia</option>
-                        <option value="ET" className="bg-gray-800">Ethiopia</option>
-                        <option value="FI" className="bg-gray-800">Finland</option>
-                        <option value="FR" className="bg-gray-800">France</option>
-                        <option value="GE" className="bg-gray-800">Georgia</option>
-                        <option value="DE" className="bg-gray-800">Germany</option>
-                        <option value="GH" className="bg-gray-800">Ghana</option>
-                        <option value="GR" className="bg-gray-800">Greece</option>
-                        <option value="GT" className="bg-gray-800">Guatemala</option>
-                        <option value="HN" className="bg-gray-800">Honduras</option>
-                        <option value="HK" className="bg-gray-800">Hong Kong</option>
-                        <option value="HU" className="bg-gray-800">Hungary</option>
-                        <option value="IS" className="bg-gray-800">Iceland</option>
-                        <option value="IN" className="bg-gray-800">India</option>
-                        <option value="ID" className="bg-gray-800">Indonesia</option>
-                        <option value="IR" className="bg-gray-800">Iran</option>
-                        <option value="IQ" className="bg-gray-800">Iraq</option>
-                        <option value="IE" className="bg-gray-800">Ireland</option>
-                        <option value="IL" className="bg-gray-800">Israel</option>
-                        <option value="IT" className="bg-gray-800">Italy</option>
-                        <option value="JM" className="bg-gray-800">Jamaica</option>
-                        <option value="JP" className="bg-gray-800">Japan</option>
-                        <option value="JO" className="bg-gray-800">Jordan</option>
-                        <option value="KZ" className="bg-gray-800">Kazakhstan</option>
-                        <option value="KE" className="bg-gray-800">Kenya</option>
-                        <option value="KW" className="bg-gray-800">Kuwait</option>
-                        <option value="LV" className="bg-gray-800">Latvia</option>
-                        <option value="LB" className="bg-gray-800">Lebanon</option>
-                        <option value="LT" className="bg-gray-800">Lithuania</option>
-                        <option value="LU" className="bg-gray-800">Luxembourg</option>
-                        <option value="MY" className="bg-gray-800">Malaysia</option>
-                        <option value="MX" className="bg-gray-800">Mexico</option>
-                        <option value="MA" className="bg-gray-800">Morocco</option>
-                        <option value="NL" className="bg-gray-800">Netherlands</option>
-                        <option value="NZ" className="bg-gray-800">New Zealand</option>
-                        <option value="NG" className="bg-gray-800">Nigeria</option>
-                        <option value="NO" className="bg-gray-800">Norway</option>
-                        <option value="OM" className="bg-gray-800">Oman</option>
-                        <option value="PK" className="bg-gray-800">Pakistan</option>
-                        <option value="PA" className="bg-gray-800">Panama</option>
-                        <option value="PY" className="bg-gray-800">Paraguay</option>
-                        <option value="PE" className="bg-gray-800">Peru</option>
-                        <option value="PH" className="bg-gray-800">Philippines</option>
-                        <option value="PL" className="bg-gray-800">Poland</option>
-                        <option value="PT" className="bg-gray-800">Portugal</option>
-                        <option value="QA" className="bg-gray-800">Qatar</option>
-                        <option value="RO" className="bg-gray-800">Romania</option>
-                        <option value="RU" className="bg-gray-800">Russia</option>
-                        <option value="SA" className="bg-gray-800">Saudi Arabia</option>
-                        <option value="RS" className="bg-gray-800">Serbia</option>
-                        <option value="SG" className="bg-gray-800">Singapore</option>
-                        <option value="SK" className="bg-gray-800">Slovakia</option>
-                        <option value="SI" className="bg-gray-800">Slovenia</option>
-                        <option value="ZA" className="bg-gray-800">South Africa</option>
-                        <option value="KR" className="bg-gray-800">South Korea</option>
-                        <option value="ES" className="bg-gray-800">Spain</option>
-                        <option value="LK" className="bg-gray-800">Sri Lanka</option>
-                        <option value="SE" className="bg-gray-800">Sweden</option>
-                        <option value="CH" className="bg-gray-800">Switzerland</option>
-                        <option value="TW" className="bg-gray-800">Taiwan</option>
-                        <option value="TH" className="bg-gray-800">Thailand</option>
-                        <option value="TN" className="bg-gray-800">Tunisia</option>
-                        <option value="TR" className="bg-gray-800">Turkey</option>
-                        <option value="UA" className="bg-gray-800">Ukraine</option>
-                        <option value="AE" className="bg-gray-800">United Arab Emirates</option>
-                        <option value="GB" className="bg-gray-800">United Kingdom</option>
-                        <option value="US" className="bg-gray-800">United States</option>
-                        <option value="UY" className="bg-gray-800">Uruguay</option>
-                        <option value="VE" className="bg-gray-800">Venezuela</option>
-                        <option value="VN" className="bg-gray-800">Vietnam</option>
-                        <option value="YE" className="bg-gray-800">Yemen</option>
-                     </select>
-                     {errors.country && (
-                        <p className="text-red-300 text-sm mt-1">{errors.country}</p>
+                        {selectedCountry ? (
+                           <div className="flex items-center gap-3">
+                              <img
+                                 src={`https://flagcdn.com/w20/${selectedCountry.code.toLowerCase()}.png`}
+                                 srcSet={`https://flagcdn.com/w40/${selectedCountry.code.toLowerCase()}.png 2x`}
+                                 width="20"
+                                 alt={selectedCountry.name}
+                                 className="rounded-sm"
+                              />
+                              <span>{selectedCountry.name}</span>
+                           </div>
+                        ) : (
+                           <span className="text-white/50">Select your country</span>
+                        )}
+                        <ChevronDown className={`w-5 h-5 text-white/50 transition-transform ${isCountryOpen ? 'rotate-180' : ''}`} />
+                     </button>
+
+                     {isCountryOpen && (
+                        <div className="absolute z-50 w-full mt-2 bg-gray-900 border border-white/20 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                           {countries.map((country) => (
+                              <button
+                                 key={country.code}
+                                 type="button"
+                                 onClick={() => {
+                                    handleChange('country', country.code);
+                                    setIsCountryOpen(false);
+                                 }}
+                                 className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/10 text-white transition-colors text-left"
+                              >
+                                 <img
+                                    src={`https://flagcdn.com/w20/${country.code.toLowerCase()}.png`}
+                                    srcSet={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png 2x`}
+                                    width="20"
+                                    alt={country.name}
+                                    className="rounded-sm"
+                                 />
+                                 <span>{country.name}</span>
+                                 {userData.country === country.code && (
+                                    <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
+                                 )}
+                              </button>
+                           ))}
+                        </div>
                      )}
+
+                     {errors.country && <p className="text-red-300 text-sm mt-1">{errors.country}</p>}
                   </div>
                </div>
 
