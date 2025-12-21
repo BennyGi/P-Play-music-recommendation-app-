@@ -166,7 +166,7 @@ function App() {
                   <h2 className="text-3xl font-bold text-white">
                      {playlistType === 'default'
                         ? 'Creating Your Popular Playlist'
-                        : 'Curating Your Custom Playlist'}
+                        : 'Making Your Custom Playlist'}
                   </h2>
                   <p className="text-white/70">
                      {playlistType === 'default'

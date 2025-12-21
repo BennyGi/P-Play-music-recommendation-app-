@@ -17,6 +17,9 @@ const RegistrationScreen = ({ onComplete }) => {
    const [isCountryOpen, setIsCountryOpen] = useState(false);
    const dropdownRef = useRef(null);
 
+   // This is Rotem's fix: Define "today" to block future dates
+   const today = new Date().toISOString().split('T')[0];
+
    // Close dropdown when clicking outside
    useEffect(() => {
       const handleClickOutside = (event) => {
@@ -156,7 +159,23 @@ const RegistrationScreen = ({ onComplete }) => {
          const passwordErrors = validatePassword(userData.password);
          if (passwordErrors.length > 0) newErrors.password = passwordErrors.join(', ');
       }
-      if (!userData.birthDate) newErrors.birthDate = 'Birth date is required';
+
+      // ROTEM'S FIX: Date Validation Logic
+      if (!userData.birthDate) {
+         newErrors.birthDate = 'Birth date is required';
+      } else {
+         const selectedDate = new Date(userData.birthDate);
+         const now = new Date();
+         const minAllowedDate = new Date();
+         minAllowedDate.setFullYear(now.getFullYear() - 120);
+
+         if (selectedDate > now) {
+            newErrors.birthDate = 'Date cannot be in the future';
+         } else if (selectedDate < minAllowedDate) {
+            newErrors.birthDate = 'Please enter a realistic birth date';
+         }
+      }
+
       if (!userData.country) newErrors.country = 'Country is required';
 
       setErrors(newErrors);
@@ -280,6 +299,7 @@ const RegistrationScreen = ({ onComplete }) => {
                         </button>
                      </div>
 
+                     {/* FIX: Restored the Password Strength UI that was accidentally deleted */}
                      {userData.password && (
                         <div className="mt-2 space-y-2">
                            <div className="flex items-center gap-2">
@@ -333,7 +353,7 @@ const RegistrationScreen = ({ onComplete }) => {
                      {errors.password && <p className="text-red-300 text-sm mt-1">{errors.password}</p>}
                   </div>
 
-                  {/* Birth Date */}
+                  {/* Birth Date (With Rotem's Logic) */}
                   <div>
                      <label className="block text-white font-medium mb-2 flex items-center gap-2">
                         <Calendar className="w-4 h-4" />
@@ -341,6 +361,7 @@ const RegistrationScreen = ({ onComplete }) => {
                      </label>
                      <input
                         type="date"
+                        max={today}
                         value={userData.birthDate}
                         onChange={(e) => handleChange('birthDate', e.target.value)}
                         className={`w-full px-4 py-3 rounded-xl bg-white/20 text-white placeholder-white/50 border ${errors.birthDate ? 'border-red-500' : 'border-white/30'
