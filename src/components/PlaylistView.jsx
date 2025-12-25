@@ -13,7 +13,10 @@ import {
    Loader
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
-import { getPopularTracksForCountry, getRecommendations } from '../services/spotifyService';
+import {
+   getPopularTracksForCountry,
+   getRecommendations
+} from '../services/spotifyService';
 
 const PlaylistView = ({ onCreateNew }) => {
    const [userData] = useState(StorageService.getUserData());
@@ -137,22 +140,25 @@ const PlaylistView = ({ onCreateNew }) => {
    const selectedGenreNames =
       preferences?.genres?.map((id) => genreNames[id]).filter(Boolean) || [];
 
-   // --- FUTURE PLAY BUTTON (כרגע רק לוג) ---
+   // --- FUTURE PLAY BUTTON ---
    const handlePlay = () => {
       console.log('Play playlist (future implementation)', playlist);
-      alert('Play will be implemented later – right now זה רק פלייליסט שנשמר ב־localStorage 🙂');
+      alert('Play יתממשק בעתיד לנגן. כרגע הפלייליסט נשמר ומוצג בלבד 🙂');
    };
 
-   // --- REFRESH PLAYLIST: מושך פלייליסט חדש לפי ההעדפות ---
+   // --- REFRESH PLAYLIST: generate new set of tracks ---
    const handleRefreshPlaylist = async () => {
       try {
          setIsLoading(true);
+
+         const refreshSeed = Math.floor(Math.random() * 100000);
+         console.log('Refreshing playlist, seed:', refreshSeed);
 
          let tracks = [];
 
          if (playlist.type === 'default') {
             const countryCode = userData?.country || 'IL';
-            tracks = await getPopularTracksForCountry(countryCode, 50);
+            tracks = await getPopularTracksForCountry(countryCode, 80);
          } else {
             const genreMap = {
                1: 'pop',
@@ -182,23 +188,38 @@ const PlaylistView = ({ onCreateNew }) => {
             };
 
             const genreNamesArr =
-               preferences?.genres?.map((id) => genreMap[id]).filter(Boolean) || [];
+               (preferences?.genres || [])
+                  .map((id) => genreMap[id])
+                  .filter(Boolean);
+
+            const shuffledGenres = [...genreNamesArr].sort(
+               () => 0.5 - Math.random()
+            );
+
             const artistIds =
-               preferences?.artists?.map((a) => a.id).filter(Boolean) || [];
+               (preferences?.artists || [])
+                  .map((a) => a.id)
+                  .filter(Boolean);
+
             const countryCode = userData?.country || 'IL';
 
             tracks = await getRecommendations(
-               genreNamesArr.length > 0 ? genreNamesArr : ['pop'],
+               shuffledGenres.length > 0 ? shuffledGenres : ['pop'],
                artistIds,
-               50,
+               80,
                countryCode
             );
          }
 
+         const shuffledTracks = [...tracks]
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 50);
+
          const newPlaylist = {
             ...playlist,
-            tracks,
-            createdAt: new Date().toISOString()
+            tracks: shuffledTracks,
+            createdAt: new Date().toISOString(),
+            refreshSeed
          };
 
          StorageService.savePlaylist(newPlaylist);
@@ -221,7 +242,7 @@ const PlaylistView = ({ onCreateNew }) => {
       };
 
       StorageService.savePlaylist(updatedPlaylist);
-      setPlaylist(updatedPlaylist); // יגרום ל-useEffect למלא מחדש את ה־state
+      setPlaylist(updatedPlaylist);
    };
 
    return (
@@ -401,7 +422,7 @@ const PlaylistView = ({ onCreateNew }) => {
                   )}
                </div>
 
-               {/* GENRES SECTION (custom) */}
+               {/* GENRES SECTION (custom only) */}
                {playlist.type === 'custom' && selectedGenreNames.length > 0 && (
                   <div className="bg-black/20 rounded-xl p-8">
                      <div className="flex items-center gap-4 mb-6">
@@ -421,8 +442,8 @@ const PlaylistView = ({ onCreateNew }) => {
                                     isBlocked ? handleUnblock(key) : handleBlockGenre(genre)
                                  }
                                  className={`px-4 py-2 rounded-full text-base flex items-center gap-2 transition-all ${isBlocked
-                                    ? 'bg-red-500/50 text-white line-through opacity-70'
-                                    : 'bg-purple-500/30 text-white hover:bg-red-500/30'
+                                       ? 'bg-red-500/50 text-white line-through opacity-70'
+                                       : 'bg-purple-500/30 text-white hover:bg-red-500/30'
                                     }`}
                               >
                                  {genre}
