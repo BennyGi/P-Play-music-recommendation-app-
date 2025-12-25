@@ -92,6 +92,18 @@ export const StorageService = {
       }
    },
 
+   removeRating(itemId) {
+      try {
+         const ratings = this.getRatings() || {};
+         delete ratings[itemId];
+         localStorage.setItem(STORAGE_KEYS.RATINGS, JSON.stringify(ratings));
+         return true;
+      } catch (error) {
+         console.error('Error removing rating:', error);
+         return false;
+      }
+   },
+
    getRatings() {
       try {
          const data = localStorage.getItem(STORAGE_KEYS.RATINGS);
@@ -113,6 +125,18 @@ export const StorageService = {
          return true;
       } catch (error) {
          console.error('Error saving to blacklist:', error);
+         return false;
+      }
+   },
+
+   removeFromBlacklist(itemId) {
+      try {
+         const blacklist = this.getBlacklist() || [];
+         const updatedList = blacklist.filter(id => id !== itemId);
+         localStorage.setItem(STORAGE_KEYS.BLACKLIST, JSON.stringify(updatedList));
+         return true;
+      } catch (error) {
+         console.error('Error removing from blacklist:', error);
          return false;
       }
    },
