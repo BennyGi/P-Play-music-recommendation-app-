@@ -1,11 +1,15 @@
-import React from 'react';
-import { Music, User, Globe, Calendar, Mic, RefreshCw, Download } from 'lucide-react';
+import React, {useState} from 'react';
+import { Music, User, Globe, Calendar, Mic, RefreshCw, Download, Star, Ban} from 'lucide-react';
 import { StorageService } from '../utils/storage';
 
 const PlaylistView = ({ onCreateNew }) => {
-   const userData = StorageService.getUserData();
-   const preferences = StorageService.getPreferences();
-   const playlist = StorageService.getLatestPlaylist();
+   const [userData] = useState(StorageService.getUserData());
+   const [preferences] = useState(StorageService.getPreferences());
+   const [playlist] = useState(StorageService.getLatestPlaylist());
+
+   // New state for DB testing
+   const [ratings, setRatings] = useState(StorageService.getRatings());
+   const [blacklist, setBlacklist] = useState(StorageService.getBlacklist());
 
    const handleExportData = () => {
       const data = StorageService.exportData();
@@ -15,6 +19,21 @@ const PlaylistView = ({ onCreateNew }) => {
       a.href = url;
       a.download = `music-preferences-${Date.now()}.json`;
       a.click();
+   };
+
+   const runDbTest = () => {
+      // Simulate saving a rating
+      const testSongId = `song_${Date.now()}`;
+      StorageService.saveRating(testSongId, 5);
+
+      // Simulate blocking an artist
+      const testArtist = `artist_${Date.now()}`;
+      StorageService.saveBlacklist(testArtist);
+
+      // Refresh state to show updates immediately
+      setRatings(StorageService.getRatings());
+      setBlacklist(StorageService.getBlacklist());
+      alert("Test data saved! Check the Debug section below.");
    };
 
    if (!playlist) {
@@ -91,6 +110,50 @@ const PlaylistView = ({ onCreateNew }) => {
                         <div>
                            <span className="text-white/60">Birth Date:</span>
                            <p className="font-semibold">{userData?.birthDate || 'N/A'}</p>
+                        </div>
+                     </div>
+                  </div>
+                  <div className="bg-black/20 rounded-xl p-6 border border-yellow-500/30">
+                     <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                           <Star className="w-5 h-5 text-yellow-400" />
+                           <h3 className="text-xl font-bold text-white">Database & Preferences Debug</h3>
+                        </div>
+                        <button
+                            onClick={runDbTest}
+                            className="bg-yellow-600/50 hover:bg-yellow-600/70 text-white px-3 py-1 rounded text-sm"
+                        >
+                           Run Test (Save Data)
+                        </button>
+                     </div>
+
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Ratings View */}
+                        <div>
+                           <h4 className="text-white/80 font-bold mb-2 flex items-center gap-2">
+                              <Star className="w-4 h-4" /> Saved Ratings ({Object.keys(ratings).length})
+                           </h4>
+                           <div className="bg-black/40 p-3 rounded h-32 overflow-y-auto text-xs font-mono text-green-300">
+                              {Object.keys(ratings).length > 0 ? (
+                                  <pre>{JSON.stringify(ratings, null, 2)}</pre>
+                              ) : (
+                                  <span className="text-white/40">No ratings saved yet.</span>
+                              )}
+                           </div>
+                        </div>
+
+                        {/* Blacklist View */}
+                        <div>
+                           <h4 className="text-white/80 font-bold mb-2 flex items-center gap-2">
+                              <Ban className="w-4 h-4" /> Blacklist ({blacklist.length})
+                           </h4>
+                           <div className="bg-black/40 p-3 rounded h-32 overflow-y-auto text-xs font-mono text-red-300">
+                              {blacklist.length > 0 ? (
+                                  <pre>{JSON.stringify(blacklist, null, 2)}</pre>
+                              ) : (
+                                  <span className="text-white/40">Blacklist is empty.</span>
+                              )}
+                           </div>
                         </div>
                      </div>
                   </div>

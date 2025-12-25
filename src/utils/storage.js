@@ -1,7 +1,9 @@
 const STORAGE_KEYS = {
    USER_DATA: 'music_app_user_data',
    PREFERENCES: 'music_app_preferences',
-   PLAYLISTS: 'music_app_playlists'
+   PLAYLISTS: 'music_app_playlists',
+   RATINGS: 'music_app_ratings',
+   BLACKLIST: 'music_app_blacklist'
 };
 
 export const StorageService = {
@@ -77,6 +79,54 @@ export const StorageService = {
       }
    },
 
+   saveRating(itemId, rating) {
+      try {
+         const ratings = this.getRatings() || {};
+         ratings[itemId] = rating;
+         localStorage.setItem(STORAGE_KEYS.RATINGS, JSON.stringify(ratings));
+         console.log(`Rating saved for ${itemId}:`, rating);
+         return true;
+      } catch (error) {
+         console.error('Error saving rating:', error);
+         return false;
+      }
+   },
+
+   getRatings() {
+      try {
+         const data = localStorage.getItem(STORAGE_KEYS.RATINGS);
+         return data ? JSON.parse(data) : {};
+      } catch (error) {
+         console.error('Error loading ratings:', error);
+         return {};
+      }
+   },
+
+   saveBlacklist(itemId) {
+      try {
+         const blacklist = this.getBlacklist() || [];
+         if (!blacklist.includes(itemId)) {
+            blacklist.push(itemId);
+            localStorage.setItem(STORAGE_KEYS.BLACKLIST, JSON.stringify(blacklist));
+            console.log('Added to blacklist:', itemId);
+         }
+         return true;
+      } catch (error) {
+         console.error('Error saving to blacklist:', error);
+         return false;
+      }
+   },
+
+   getBlacklist() {
+      try {
+         const data = localStorage.getItem(STORAGE_KEYS.BLACKLIST);
+         return data ? JSON.parse(data) : [];
+      } catch (error) {
+         console.error('Error loading blacklist:', error);
+         return [];
+      }
+   },
+
    getLatestPlaylist() {
       const playlists = this.getPlaylists();
       return playlists.length > 0 ? playlists[playlists.length - 1] : null;
@@ -99,7 +149,9 @@ export const StorageService = {
       return {
          userData: this.getUserData(),
          preferences: this.getPreferences(),
-         playlists: this.getPlaylists()
+         playlists: this.getPlaylists(),
+         ratings: this.getRatings(),
+         blacklist: this.getBlacklist()
       };
    }
 };
