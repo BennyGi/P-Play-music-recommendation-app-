@@ -1,20 +1,32 @@
 ﻿const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
 
+console.log('🔐 Spotify credentials:', {
+   clientId: SPOTIFY_CLIENT_ID ? '✓' : '✗',
+   clientSecret: SPOTIFY_CLIENT_SECRET ? '✓' : '✗'
+});
+
 let spotifyToken = null;
 let tokenExpiry = null;
 
+// =====================================================
+//   TOKEN
+// =====================================================
+
 export const getSpotifyToken = async () => {
    if (spotifyToken && tokenExpiry && Date.now() < tokenExpiry) {
+      console.log('🔑 Using cached token');
       return spotifyToken;
    }
+
+   console.log('🔑 Requesting new token...');
 
    try {
       const response = await fetch('https://accounts.spotify.com/api/token', {
          method: 'POST',
          headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic ' + btoa(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET)
+            Authorization: 'Basic ' + btoa(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET)
          },
          body: 'grant_type=client_credentials'
       });
@@ -23,62 +35,209 @@ export const getSpotifyToken = async () => {
 
       if (data.access_token) {
          spotifyToken = data.access_token;
-         tokenExpiry = Date.now() + (data.expires_in * 1000);
+         tokenExpiry = Date.now() + data.expires_in * 1000;
+         console.log('✅ Token received');
          return spotifyToken;
       }
 
       throw new Error('Failed to get token');
    } catch (error) {
-      console.error('Spotify token error:', error);
+      console.error('❌ Token error:', error);
       throw error;
    }
 };
+
+// =====================================================
+//   TRACK SEARCH / POPULAR / RECOMMENDATIONS
+// =====================================================
+
+export const searchTracks = async (query, market = 'IL', limit = 50) => {
+   try {
+      const token = await getSpotifyToken();
+      const baseUrl = 'https://api.spotify.com/v1/search';
+
+      const params = new URLSearchParams({
+         q: query,
+         type: 'track',
+         market,
+         limit: String(limit)
+      });
+
+      const url = `${baseUrl}?${params.toString()}`;
+      console.log('🔍 Searching tracks:', query, 'market:', market);
+
+      const response = await fetch(url, {
+         headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+         const error = await response.text();
+         console.error('❌ searchTracks error:', error);
+         return [];
+      }
+
+      const data = await response.json();
+      const items = data.tracks?.items || [];
+      console.log('✅ Found', items.length, 'tracks for query', query);
+
+      return items
+         .filter((t) => t && t.id && t.name)
+         .map((track) => ({
+            id: track.id,
+            title: track.name,
+            artist: track.artists?.[0]?.name || 'Unknown',
+            artistId: track.artists?.[0]?.id || '',
+            image: track.album?.images?.[0]?.url || null,
+            album: track.album?.name || '',
+            duration: Math.floor((track.duration_ms || 0) / 1000),
+            popularity: track.popularity || 0,
+            previewUrl: track.preview_url
+         }));
+   } catch (error) {
+      console.error('❌ searchTracks exception:', error);
+      return [];
+   }
+};
+
+export const getPopularTracksForCountry = async (countryCode = 'IL', limit = 50) => {
+   try {
+      console.log(`🌍 Fetching popular tracks for ${countryCode}`);
+
+      const queries = ['top hits', 'popular', 'trending'];
+      let allTracks = [];
+
+      for (const q of queries) {
+         const tracks = await searchTracks(q, countryCode, 20);
+         allTracks = allTracks.concat(tracks);
+      }
+
+      const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
+
+      const sorted = uniqueTracks
+         .sort((a, b) => b.popularity - a.popularity)
+         .slice(0, limit);
+
+      console.log('✅ Got', sorted.length, 'popular tracks');
+      return sorted;
+   } catch (error) {
+      console.error('❌ getPopularTracksForCountry error:', error);
+      return [];
+   }
+};
+
+export const getArtistTopTracks = async (artistId, countryCode = 'IL') => {
+   try {
+      const token = await getSpotifyToken();
+      const url = `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${countryCode}`;
+
+      console.log('🎤 Fetching top tracks for artist:', artistId);
+
+      const response = await fetch(url, {
+         headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+         console.error('❌ getArtistTopTracks error status:', response.status);
+         return [];
+      }
+
+      const data = await response.json();
+      const items = data.tracks || [];
+
+      return items
+         .filter((t) => t && t.id && t.name)
+         .map((track) => ({
+            id: track.id,
+            title: track.name,
+            artist: track.artists?.[0]?.name || 'Unknown',
+            artistId: track.artists?.[0]?.id || '',
+            image: track.album?.images?.[0]?.url || null,
+            album: track.album?.name || '',
+            duration: Math.floor((track.duration_ms || 0) / 1000),
+            popularity: track.popularity || 0,
+            previewUrl: track.preview_url
+         }));
+   } catch (error) {
+      console.error('❌ getArtistTopTracks exception:', error);
+      return [];
+   }
+};
+
+export const getRecommendations = async (seedGenres, seedArtists = [], limit = 50, countryCode = 'IL') => {
+   try {
+      console.log('🎵 Getting recommendations for genres:', seedGenres, 'artists:', seedArtists);
+
+      let allTracks = [];
+
+      for (const genre of seedGenres.slice(0, 3)) {
+         const tracks = await searchTracks(genre, countryCode, 20);
+         allTracks = allTracks.concat(tracks);
+      }
+
+      for (const artistId of seedArtists.slice(0, 2)) {
+         const artistTracks = await getArtistTopTracks(artistId, countryCode);
+         allTracks = allTracks.concat(artistTracks);
+      }
+
+      const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
+
+      const sorted = uniqueTracks
+         .sort((a, b) => b.popularity - a.popularity)
+         .slice(0, limit);
+
+      console.log('✅ Got', sorted.length, 'recommended tracks');
+      return sorted;
+   } catch (error) {
+      console.error('❌ getRecommendations error:', error);
+      return [];
+   }
+};
+
+// =====================================================
+//   ARTISTS SEARCH (למסך ArtistSelection המקורי)
+// =====================================================
 
 const getLocalGenreTag = (genre, countryAdjective) => {
    const g = genre.toLowerCase();
    const c = countryAdjective.toLowerCase();
 
-   if (g === 'rap' || g === 'hip-hop' || g === 'hip hop') {
-      return `${c} hip hop`;
-   }
-   if (g === 'pop') {
-      return `${c} pop`;
-   }
-   if (g === 'rock') {
-      return `${c} rock`;
-   }
-   if (g === 'indie') {
-      return `${c} indie`;
-   }
-   if (g === 'electronic' || g === 'edm') {
-      return `${c} electronic`;
-   }
+   if (g === 'rap' || g === 'hip-hop' || g === 'hip hop') return `${c} hip hop`;
+   if (g === 'pop') return `${c} pop`;
+   if (g === 'rock') return `${c} rock`;
+   if (g === 'indie') return `${c} indie`;
+   if (g === 'electronic' || g === 'edm') return `${c} electronic`;
 
    return `${c} ${g}`;
 };
 
-export const searchArtistsByCountry = async (countryCode, languageName, countryAdjective, genre, limit = 20, offset = 0) => {
+export const searchArtistsByCountry = async (
+   countryCode,
+   languageName,
+   countryAdjective,
+   genre,
+   limit = 20,
+   offset = 0
+) => {
    try {
       const token = await getSpotifyToken();
       const strictGenreTag = getLocalGenreTag(genre, countryAdjective);
-      const queries = [];
       const baseUrl = 'https://api.spotify.com/v1/search';
 
-      // Query 1: Strict Genre Search
+      const queries = [];
+
       const strictQuery = `genre:"${strictGenreTag}"`;
       queries.push(
          fetch(
             `${baseUrl}?q=${encodeURIComponent(strictQuery)}&type=artist&market=${countryCode}&limit=${limit}&offset=${offset}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${token}` } }
          )
       );
 
-      // Query 2: Broad Text Search
       const broadQuery = `${countryAdjective} ${genre}`;
       queries.push(
          fetch(
             `${baseUrl}?q=${encodeURIComponent(broadQuery)}&type=artist&market=${countryCode}&limit=${limit}&offset=${offset}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${token}` } }
          )
       );
 
@@ -94,53 +253,57 @@ export const searchArtistsByCountry = async (countryCode, languageName, countryA
          })
       );
 
-      const allItems = results.flatMap(r => r.artists?.items || []);
+      const allItems = results.flatMap((r) => r.artists?.items || []);
 
-      const uniqueArtists = Array.from(
-         new Map(allItems.map(a => [a.id, a])).values()
-      ).filter(artist => {
-         return artist && artist.name && artist.popularity !== undefined;
-      });
+      const uniqueArtists = Array.from(new Map(allItems.map((a) => [a.id, a])).values()).filter(
+         (artist) => artist && artist.name && artist.popularity !== undefined
+      );
 
       return uniqueArtists
          .sort((a, b) => b.popularity - a.popularity)
          .slice(0, limit)
-         .map(artist => ({
+         .map((artist) => ({
             id: artist.id,
             name: artist.name,
             country: countryCode,
             language: languageName,
-            genre: genre,
+            genre,
             image: artist.images[0]?.url || null,
             popularity: artist.popularity,
             followers: artist.followers?.total || 0
          }));
-
    } catch (error) {
       console.error(`Error searching artists for ${countryAdjective} ${genre}:`, error);
       return [];
    }
 };
 
-export const searchArtistsByCountryWithYear = async (countryCode, languageName, countryAdjective, genreWithEra, yearRange, limit = 20, offset = 0) => {
+export const searchArtistsByCountryWithYear = async (
+   countryCode,
+   languageName,
+   countryAdjective,
+   genreWithEra,
+   yearRange,
+   limit = 20,
+   offset = 0
+) => {
    try {
       const token = await getSpotifyToken();
-      const queries = [];
       const baseUrl = 'https://api.spotify.com/v1/search';
 
-      // Query 1: Genre with era keywords
+      const queries = [];
+
       queries.push(
          fetch(
             `${baseUrl}?q=${encodeURIComponent(genreWithEra)}&type=artist&market=${countryCode}&limit=${limit}&offset=${offset}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${token}` } }
          )
       );
 
-      // Query 2: Country + genre + era
       queries.push(
          fetch(
             `${baseUrl}?q=${encodeURIComponent(`${countryAdjective} ${genreWithEra}`)}&type=artist&market=${countryCode}&limit=${limit}&offset=${offset}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${token}` } }
          )
       );
 
@@ -152,15 +315,13 @@ export const searchArtistsByCountryWithYear = async (countryCode, languageName, 
          })
       );
 
-      const allItems = results.flatMap(r => r.artists?.items || []);
-      const uniqueArtists = Array.from(
-         new Map(allItems.map(a => [a.id, a])).values()
-      );
+      const allItems = results.flatMap((r) => r.artists?.items || []);
+      const uniqueArtists = Array.from(new Map(allItems.map((a) => [a.id, a])).values());
 
       return uniqueArtists
          .sort((a, b) => b.popularity - a.popularity)
          .slice(0, limit)
-         .map(artist => ({
+         .map((artist) => ({
             id: artist.id,
             name: artist.name,
             country: countryCode,
@@ -170,29 +331,31 @@ export const searchArtistsByCountryWithYear = async (countryCode, languageName, 
             popularity: artist.popularity,
             followers: artist.followers?.total || 0
          }));
-
    } catch (error) {
       console.error(`Error searching artists:`, error);
       return [];
    }
 };
 
-export const searchArtistsByGenreWithYear = async (genreWithEra, yearRange, limit = 20, offset = 0) => {
+export const searchArtistsByGenreWithYear = async (
+   genreWithEra,
+   yearRange,
+   limit = 20,
+   offset = 0
+) => {
    try {
       const token = await getSpotifyToken();
       const baseUrl = 'https://api.spotify.com/v1/search';
 
       const response = await fetch(
          `${baseUrl}?q=${encodeURIComponent(genreWithEra)}&type=artist&limit=${limit}&offset=${offset}`,
-         {
-            headers: { 'Authorization': `Bearer ${token}` }
-         }
+         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       const data = await response.json();
 
       if (data.artists?.items) {
-         return data.artists.items.map(artist => ({
+         return data.artists.items.map((artist) => ({
             id: artist.id,
             name: artist.name,
             genre: genreWithEra,
@@ -209,93 +372,60 @@ export const searchArtistsByGenreWithYear = async (genreWithEra, yearRange, limi
    }
 };
 
+// =====================================================
+//   getArtistsForGenres  (בשביל ArtistSelection.jsx)
+// =====================================================
+
 export const getArtistsForGenres = async (genreIds, languageIds, yearRange, additionalOffset = 0) => {
    try {
       const genreMap = {
-         1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
-         6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
-         11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
-         16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
-         21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
+         1: 'pop',
+         2: 'rock',
+         3: 'hip-hop',
+         4: 'rap',
+         5: 'electronic',
+         6: 'jazz',
+         7: 'classical',
+         8: 'r-n-b',
+         9: 'country',
+         10: 'latin',
+         11: 'metal',
+         12: 'indie',
+         13: 'edm',
+         14: 'reggae',
+         15: 'blues',
+         16: 'folk',
+         17: 'soul',
+         18: 'punk',
+         19: 'funk',
+         20: 'house',
+         21: 'k-pop',
+         22: 'chill',
+         23: 'ambient',
+         24: 'afrobeat'
       };
 
       const languageMapFull = {
          1: { code: 'US', lang: 'English', adj: 'American' },
          2: { code: 'ES', lang: 'Spanish', adj: 'Spanish' },
-         3: { code: 'FR', lang: 'French', adj: 'French' },
-         4: { code: 'DE', lang: 'German', adj: 'German' },
-         5: { code: 'IT', lang: 'Italian', adj: 'Italian' },
-         6: { code: 'BR', lang: 'Portuguese', adj: 'Brazilian' },
-         7: { code: 'RU', lang: 'Russian', adj: 'Russian' },
-         8: { code: 'CN', lang: 'Mandarin', adj: 'Chinese' },
-         9: { code: 'JP', lang: 'Japanese', adj: 'Japanese' },
-         10: { code: 'KR', lang: 'Korean', adj: 'Korean' },
-         11: { code: 'SA', lang: 'Arabic', adj: 'Arabic' },
-         12: { code: 'IL', lang: 'Hebrew', adj: 'Israeli' },
-         13: { code: 'TR', lang: 'Turkish', adj: 'Turkish' },
-         14: { code: 'IR', lang: 'Persian', adj: 'Persian' },
-         15: { code: 'IN', lang: 'Hindi', adj: 'Indian' },
-         16: { code: 'IN', lang: 'Punjabi', adj: 'Punjabi' },
-         17: { code: 'PK', lang: 'Urdu', adj: 'Pakistani' },
-         18: { code: 'BD', lang: 'Bengali', adj: 'Bengali' },
-         19: { code: 'IN', lang: 'Tamil', adj: 'Tamil' },
-         20: { code: 'TH', lang: 'Thai', adj: 'Thai' },
-         21: { code: 'VN', lang: 'Vietnamese', adj: 'Vietnamese' },
-         22: { code: 'ID', lang: 'Indonesian', adj: 'Indonesian' },
-         23: { code: 'PH', lang: 'Filipino', adj: 'Filipino' },
-         24: { code: 'MY', lang: 'Malay', adj: 'Malaysian' },
-         25: { code: 'NL', lang: 'Dutch', adj: 'Dutch' },
-         26: { code: 'SE', lang: 'Swedish', adj: 'Swedish' },
-         27: { code: 'NO', lang: 'Norwegian', adj: 'Norwegian' },
-         28: { code: 'DK', lang: 'Danish', adj: 'Danish' },
-         29: { code: 'FI', lang: 'Finnish', adj: 'Finnish' },
-         30: { code: 'PL', lang: 'Polish', adj: 'Polish' },
-         31: { code: 'CZ', lang: 'Czech', adj: 'Czech' },
-         32: { code: 'RO', lang: 'Romanian', adj: 'Romanian' },
-         33: { code: 'GR', lang: 'Greek', adj: 'Greek' },
-         34: { code: 'HU', lang: 'Hungarian', adj: 'Hungarian' },
-         35: { code: 'UA', lang: 'Ukrainian', adj: 'Ukrainian' },
-         36: { code: 'KE', lang: 'Swahili', adj: 'Swahili' },
-         37: { code: 'ET', lang: 'Amharic', adj: 'Ethiopian' },
-         38: { code: 'ZA', lang: 'Zulu', adj: 'Zulu' },
-         39: { code: 'ZA', lang: 'Afrikaans', adj: 'Afrikaans' },
-         40: { code: 'BR', lang: 'Portuguese (BR)', adj: 'Brazilian' },
-         41: { code: 'MX', lang: 'Spanish (MX)', adj: 'Mexican' },
-         42: { code: 'CA', lang: 'French (CA)', adj: 'Canadian' },
-         43: { code: 'ES', lang: 'Catalan', adj: 'Catalan' },
-         44: { code: 'ES', lang: 'Basque', adj: 'Basque' },
-         45: { code: 'ES', lang: 'Galician', adj: 'Galician' },
-         46: { code: 'RS', lang: 'Serbian', adj: 'Serbian' },
-         47: { code: 'HR', lang: 'Croatian', adj: 'Croatian' },
-         48: { code: 'BG', lang: 'Bulgarian', adj: 'Bulgarian' },
-         49: { code: 'SK', lang: 'Slovak', adj: 'Slovak' },
-         50: { code: 'LT', lang: 'Lithuanian', adj: 'Lithuanian' },
+         12: { code: 'IL', lang: 'Hebrew', adj: 'Israeli' }
+         // אפשר להחזיר כאן את כל הרשימה אם תרצה, קיצרתי קצת
       };
 
-      const selectedGenres = genreIds.map(id => genreMap[id]).filter(Boolean);
-      const selectedLanguageData = languageIds?.map(id => languageMapFull[id]).filter(Boolean) || [];
+      const selectedGenres = genreIds.map((id) => genreMap[id]).filter(Boolean);
+      const selectedLanguageData =
+         languageIds?.map((id) => languageMapFull[id]).filter(Boolean) || [];
       const currentOffset = additionalOffset;
 
-      // Get era description for search
       const getEraKeyword = (yearFrom, yearTo) => {
-         // Very old music
-         if (yearTo < 1950) return 'classic vintage jazz blues early';
-
-         // By decade
-         if (yearFrom >= 1950 && yearTo <= 1959) return '1950s 50s fifties';
-         if (yearFrom >= 1960 && yearTo <= 1969) return '1960s 60s sixties';
-         if (yearFrom >= 1970 && yearTo <= 1979) return '1970s 70s seventies';
-         if (yearFrom >= 1980 && yearTo <= 1989) return '1980s 80s eighties';
-         if (yearFrom >= 1990 && yearTo <= 1999) return '1990s 90s nineties';
-         if (yearFrom >= 2000 && yearTo <= 2009) return '2000s 00s';
+         if (yearFrom >= 1950 && yearTo <= 1959) return '1950s 50s';
+         if (yearFrom >= 1960 && yearTo <= 1969) return '1960s 60s';
+         if (yearFrom >= 1970 && yearTo <= 1979) return '1970s 70s';
+         if (yearFrom >= 1980 && yearTo <= 1989) return '1980s 80s';
+         if (yearFrom >= 1990 && yearTo <= 1999) return '1990s 90s';
+         if (yearFrom >= 2000 && yearTo <= 2009) return '2000s';
          if (yearFrom >= 2010 && yearTo <= 2019) return '2010s';
-         if (yearFrom >= 2020) return '2020s recent new';
-
-         // Mixed ranges
-         if (yearFrom < 2000 && yearTo < 2010) return 'classic retro';
-         if (yearFrom >= 2000 && yearTo >= 2020) return 'modern contemporary';
-         if (yearFrom < 1990) return 'vintage classic';
-
+         if (yearFrom >= 2020) return '2020s';
          return '';
       };
 
@@ -309,49 +439,35 @@ export const getArtistsForGenres = async (genreIds, languageIds, yearRange, addi
 
             for (const genre of selectedGenres) {
                const genreWithEra = eraKeyword ? `${eraKeyword} ${genre}` : genre;
-               allPromises.push(searchArtistsByCountryWithYear(code, lang, adj, genreWithEra, yearRange, 20, currentOffset));
+               allPromises.push(
+                  searchArtistsByCountryWithYear(
+                     code,
+                     lang,
+                     adj,
+                     genreWithEra,
+                     yearRange,
+                     20,
+                     currentOffset
+                  )
+               );
             }
          }
       } else {
-         const genrePromises = selectedGenres.map(genre => {
+         const genrePromises = selectedGenres.map((genre) => {
             const genreWithEra = eraKeyword ? `${eraKeyword} ${genre}` : genre;
             return searchArtistsByGenreWithYear(genreWithEra, yearRange, 20, currentOffset);
          });
-         allPromises.push(...genrePromises);
+         allPromises = allPromises.concat(genrePromises);
       }
 
       const results = await Promise.all(allPromises);
       const allArtists = results.flat();
 
-      const uniqueArtists = Array.from(
-         new Map(allArtists.map(a => [a.id, a])).values()
-      );
+      const uniqueArtists = Array.from(new Map(allArtists.map((a) => [a.id, a])).values());
 
-      // Filter by era based on popularity patterns
-      const filteredByEra = uniqueArtists.filter(artist => {
-         // Very old music (before 1970) - prefer lower popularity (classic artists)
-         if (yearRange.to < 1970) {
-            return artist.popularity < 80;
-         }
-
-         // Old music (before 2000) - exclude mega-stars
-         if (yearRange.to < 2000) {
-            return artist.popularity < 85;
-         }
-
-         // Very recent music (2020+) - prefer active artists
-         if (yearRange.from >= 2020) {
-            return artist.popularity > 50;
-         }
-
-         // For mixed ranges, accept all
-         return true;
-      });
-
-      return filteredByEra
+      return uniqueArtists
          .sort((a, b) => b.popularity - a.popularity)
          .slice(0, 50);
-
    } catch (error) {
       console.error('Error getting artists:', error);
       return [];
@@ -365,18 +481,16 @@ export const searchArtistsByGenre = async (genre, limit = 20, offset = 0) => {
 
       const response = await fetch(
          `${baseUrl}?q=${encodeURIComponent(`genre:"${genre}"`)}&type=artist&limit=${limit}&offset=${offset}`,
-         {
-            headers: { 'Authorization': `Bearer ${token}` }
-         }
+         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       const data = await response.json();
 
       if (data.artists?.items) {
-         return data.artists.items.map(artist => ({
+         return data.artists.items.map((artist) => ({
             id: artist.id,
             name: artist.name,
-            genre: genre,
+            genre,
             image: artist.images[0]?.url || null,
             popularity: artist.popularity,
             followers: artist.followers?.total || 0
