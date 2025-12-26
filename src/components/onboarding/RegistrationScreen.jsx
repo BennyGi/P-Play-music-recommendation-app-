@@ -1,15 +1,55 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import { Music, ArrowRight, User, Mail, Calendar, MapPin, Lock, Eye, EyeOff, ChevronDown } from 'lucide-react';
 
-const RegistrationScreen = ({ onComplete }) => {
-   const [userData, setUserData] = useState({
+const USER_DRAFT_KEY = 'pplay_user_draft';
+
+const loadInitialUserData = () => {
+   if (typeof window === 'undefined') return {
       firstName: '',
       lastName: '',
       email: '',
       password: '',
       birthDate: '',
       country: ''
-   });
+   };
+
+   try {
+      const raw = localStorage.getItem(USER_DRAFT_KEY);
+      if (!raw) {
+         return {
+            firstName: '',
+            lastName: '',
+            email: '',
+            password: '',
+            birthDate: '',
+            country: ''
+         };
+      }
+      const parsed = JSON.parse(raw);
+      return {
+         firstName: parsed.firstName || '',
+         lastName: parsed.lastName || '',
+         email: parsed.email || '',
+         password: parsed.password || '',
+         birthDate: parsed.birthDate || '',
+         country: parsed.country || ''
+      };
+   } catch {
+      return {
+         firstName: '',
+         lastName: '',
+         email: '',
+         password: '',
+         birthDate: '',
+         country: ''
+      };
+   }
+};
+
+
+const RegistrationScreen = ({ onComplete }) => {
+   const [userData, setUserData] = useState(loadInitialUserData);
+
 
    const [errors, setErrors] = useState({});
    const [showPassword, setShowPassword] = useState(false);
@@ -183,13 +223,35 @@ const RegistrationScreen = ({ onComplete }) => {
    };
 
    const handleSubmit = () => {
-      if (validateForm()) onComplete(userData);
+      if (validateForm()) {
+         try {
+            localStorage.removeItem(USER_DRAFT_KEY);
+         } catch (e) {
+            console.warn('Failed to clear draft user data', e);
+         }
+         onComplete(userData);
+      }
    };
 
+
    const handleChange = (field, value) => {
-      setUserData(prev => ({ ...prev, [field]: value }));
-      if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+      setUserData(prev => {
+         const updated = { ...prev, [field]: value };
+
+         try {
+            localStorage.setItem(USER_DRAFT_KEY, JSON.stringify(updated));
+         } catch (e) {
+            console.warn('Failed to save draft user data', e);
+         }
+
+         return updated;
+      });
+
+      if (errors[field]) {
+         setErrors(prev => ({ ...prev, [field]: '' }));
+      }
    };
+
 
    const getPasswordStrength = () => {
       if (!userData.password) return { strength: 0, label: '', color: '' };
