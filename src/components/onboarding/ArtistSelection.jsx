@@ -100,7 +100,7 @@ const ArtistSelection = ({ selectedGenres, selectedLanguages, selectedYears, onC
 
    if (loading) {
       return (
-         <div className="min-h-screen bg-gradient-to-br from-pink-900 via-rose-900 to-red-900 flex items-center justify-center p-6">
+         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-6">
             <div className="text-center space-y-6">
                <Loader className="w-16 h-16 text-white animate-spin mx-auto" />
                <div className="space-y-2">
@@ -114,7 +114,7 @@ const ArtistSelection = ({ selectedGenres, selectedLanguages, selectedYears, onC
 
    if (error) {
       return (
-         <div className="min-h-screen bg-gradient-to-br from-pink-900 via-rose-900 to-red-900 flex items-center justify-center p-6">
+         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-6">
             <div className="max-w-md w-full bg-white/10 backdrop-blur-lg rounded-3xl p-8 text-center space-y-6">
                <AlertCircle className="w-16 h-16 text-red-400 mx-auto" />
                <div className="space-y-2">
@@ -141,7 +141,7 @@ const ArtistSelection = ({ selectedGenres, selectedLanguages, selectedYears, onC
    }
 
    return (
-      <div className="min-h-screen bg-gradient-to-br from-pink-900 via-rose-900 to-red-900 p-6">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-6">
          <div className="max-w-7xl mx-auto py-12">
             <div className="mb-8">
                <div className="flex items-center justify-center gap-2 mb-4">

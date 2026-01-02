@@ -49,7 +49,7 @@ const YearSelection = ({ onContinue, onSkip, onBack }) => {
    };
 
    return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-900 via-amber-900 to-yellow-900 p-6">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-6">
          <div className="max-w-5xl mx-auto py-12">
             {/* Progress Indicator */}
             <div className="mb-8">

@@ -10,7 +10,14 @@ import {
    Ban,
    X,
    Play,
-   Loader
+   Loader,
+   Pause,
+   SkipBack,
+   SkipForward,
+   Shuffle,
+   Repeat,
+   Volume2,
+   Heart
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import {
@@ -29,12 +36,27 @@ const PlaylistView = ({ onCreateNew }) => {
    const [suggestedArtists, setSuggestedArtists] = useState([]);
    const [isLoading, setIsLoading] = useState(true);
 
+   // Music Player State
+   const [currentTrack, setCurrentTrack] = useState(null);
+   const [isPlaying, setIsPlaying] = useState(false);
+   const [progress, setProgress] = useState(0);
+   const [volume, setVolume] = useState(75);
+   const [likedTrackIds, setLikedTrackIds] = useState(new Set());
+   const [isShuffle, setIsShuffle] = useState(false);
+   const [repeatMode, setRepeatMode] = useState('off'); // 'off', 'all', 'one'
+   const [history, setHistory] = useState([]); // Track history for smart Previous
+
    // --- Load tracks & artists from latest playlist ---
    useEffect(() => {
       setIsLoading(true);
 
       if (playlist?.tracks && playlist.tracks.length > 0) {
          setSuggestedTracks(playlist.tracks);
+
+         // Initialize current track with first track
+         if (!currentTrack && playlist.tracks[0]) {
+            setCurrentTrack(playlist.tracks[0]);
+         }
 
          const artistMap = new Map();
          playlist.tracks.forEach((t) => {
@@ -55,6 +77,15 @@ const PlaylistView = ({ onCreateNew }) => {
 
       setIsLoading(false);
    }, [playlist]);
+
+   // --- Sync Music Player with suggestedTracks changes (e.g., refresh) ---
+   useEffect(() => {
+      if (suggestedTracks.length > 0) {
+         setCurrentTrack(suggestedTracks[0]);
+         setIsPlaying(false);
+         setProgress(0);
+      }
+   }, [suggestedTracks]);
 
    const refreshState = () => {
       setBlacklist(StorageService.getBlacklist());
@@ -90,6 +121,90 @@ const PlaylistView = ({ onCreateNew }) => {
          year: 'numeric',
          month: 'long',
          day: 'numeric'
+      });
+   };
+
+   // Music Player Handlers
+   const handlePlayPause = () => {
+      setIsPlaying(!isPlaying);
+   };
+
+   const toggleShuffle = () => {
+      setIsShuffle(!isShuffle);
+   };
+
+   const toggleRepeat = () => {
+      const modes = ['off', 'all', 'one'];
+      const currentIndex = modes.indexOf(repeatMode);
+      const nextIndex = (currentIndex + 1) % modes.length;
+      setRepeatMode(modes[nextIndex]);
+   };
+
+   const handleNext = () => {
+      if (suggestedTracks.length === 0) return;
+
+      const currentIndex = suggestedTracks.findIndex(t => t.id === currentTrack?.id);
+
+      // Repeat One: replay current track
+      if (repeatMode === 'one') {
+         setProgress(0);
+         return;
+      }
+
+      // Add current index to history before changing track
+      if (currentIndex !== -1) {
+         setHistory(prev => [...prev, currentIndex]);
+      }
+
+      // Shuffle: pick random track
+      if (isShuffle) {
+         const randomIndex = Math.floor(Math.random() * suggestedTracks.length);
+         setCurrentTrack(suggestedTracks[randomIndex]);
+         setProgress(0);
+         return;
+      }
+
+      // Normal or Repeat All: go to next
+      const nextIndex = (currentIndex + 1) % suggestedTracks.length;
+
+      // If at end and repeat mode is 'off', stop
+      if (repeatMode === 'off' && currentIndex === suggestedTracks.length - 1) {
+         setIsPlaying(false);
+         return;
+      }
+
+      setCurrentTrack(suggestedTracks[nextIndex]);
+      setProgress(0);
+   };
+
+   const handlePrevious = () => {
+      if (suggestedTracks.length === 0) return;
+
+      // Check if history has items - use smart previous
+      if (history.length > 0) {
+         const lastIndex = history[history.length - 1];
+         setHistory(prev => prev.slice(0, -1)); // Remove last item
+         setCurrentTrack(suggestedTracks[lastIndex]);
+         setProgress(0);
+         return;
+      }
+
+      // Fallback to standard previous behavior
+      const currentIndex = suggestedTracks.findIndex(t => t.id === currentTrack?.id);
+      const prevIndex = currentIndex <= 0 ? suggestedTracks.length - 1 : currentIndex - 1;
+      setCurrentTrack(suggestedTracks[prevIndex]);
+      setProgress(0);
+   };
+
+   const toggleLike = (trackId) => {
+      setLikedTrackIds(prev => {
+         const newSet = new Set(prev);
+         if (newSet.has(trackId)) {
+            newSet.delete(trackId);
+         } else {
+            newSet.add(trackId);
+         }
+         return newSet;
       });
    };
 
@@ -352,6 +467,142 @@ const PlaylistView = ({ onCreateNew }) => {
                   )}
                </div>
 
+               {/* MUSIC PLAYER */}
+               {currentTrack && (
+                  <div className="relative bg-black/60 backdrop-blur-lg border border-white/10 rounded-2xl p-8 overflow-hidden">
+                     {/* Dynamic Background */}
+                     {currentTrack.image && (
+                        <>
+                           <img
+                              src={currentTrack.image}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 -z-10"
+                           />
+                           <div className="absolute inset-0 bg-black/50 -z-10" />
+                        </>
+                     )}
+
+                     <div className="flex items-center justify-between gap-8">
+                        {/* LEFT: Current Track Info - 30% width */}
+                        <div className="flex items-center gap-4 w-[30%] min-w-0">
+                           {currentTrack.image && (
+                              <img
+                                 src={currentTrack.image}
+                                 alt={currentTrack.title}
+                                 className="w-16 h-16 rounded-md object-cover shadow-lg flex-shrink-0"
+                              />
+                           )}
+                           <div className="flex-1 min-w-0">
+                              <h4 className="text-white font-bold text-xl truncate">
+                                 {currentTrack.title}
+                              </h4>
+                              <p className="text-gray-300 text-base truncate">
+                                 {currentTrack.artist}
+                              </p>
+                           </div>
+                           <button
+                              onClick={() => toggleLike(currentTrack.id)}
+                              className={`p-2 rounded-full transition-all flex-shrink-0 hover:scale-110 ${likedTrackIds.has(currentTrack.id)
+                                 ? 'text-red-500'
+                                 : 'text-gray-400 hover:text-red-400'
+                                 }`}
+                           >
+                              <Heart
+                                 className="w-6 h-6"
+                                 fill={likedTrackIds.has(currentTrack.id) ? 'currentColor' : 'none'}
+                              />
+                           </button>
+                        </div>
+
+                        {/* CENTER: Playback Controls - 40% width, most important */}
+                        <div className="flex flex-col items-center gap-3 w-[40%] max-w-xl">
+                           {/* Row 1: Control Buttons */}
+                           <div className="flex items-center justify-center gap-6">
+                              <button
+                                 onClick={toggleShuffle}
+                                 className={`transition-colors hover:scale-110 ${isShuffle ? 'text-green-500' : 'text-white/50 hover:text-white'
+                                    }`}
+                              >
+                                 <Shuffle className="w-5 h-5" />
+                              </button>
+                              <button
+                                 onClick={handlePrevious}
+                                 className="text-white/70 hover:text-white transition-colors"
+                              >
+                                 <SkipBack className="w-6 h-6" />
+                              </button>
+                              <button
+                                 onClick={handlePlayPause}
+                                 className="bg-white hover:bg-white/90 text-black rounded-full p-4 transition-all hover:scale-110 shadow-xl"
+                              >
+                                 {isPlaying ? (
+                                    <Pause className="w-6 h-6" fill="currentColor" />
+                                 ) : (
+                                    <Play className="w-6 h-6 ml-0.5" fill="currentColor" />
+                                 )}
+                              </button>
+                              <button
+                                 onClick={handleNext}
+                                 className="text-white/70 hover:text-white transition-colors"
+                              >
+                                 <SkipForward className="w-6 h-6" />
+                              </button>
+                              <button
+                                 onClick={toggleRepeat}
+                                 className={`transition-colors hover:scale-110 relative ${repeatMode !== 'off' ? 'text-green-500' : 'text-white/50 hover:text-white'
+                                    }`}
+                                 title={`Repeat: ${repeatMode}`}
+                              >
+                                 <Repeat className="w-5 h-5" />
+                                 {repeatMode === 'one' && (
+                                    <span className="absolute -top-1 -right-1 text-[10px] font-bold">1</span>
+                                 )}
+                              </button>
+                           </div>
+
+                           {/* Row 2: Progress Bar */}
+                           <div className="w-full flex items-center gap-3">
+                              <span className="text-white/60 text-xs font-medium tabular-nums">
+                                 {Math.floor(progress / 60)}:{String(progress % 60).padStart(2, '0')}
+                              </span>
+                              <div className="relative flex-1 group">
+                                 <input
+                                    type="range"
+                                    min="0"
+                                    max="180"
+                                    value={progress}
+                                    onChange={(e) => setProgress(Number(e.target.value))}
+                                    className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer transition-all group-hover:h-1.5"
+                                    style={{
+                                       background: `linear-gradient(to right, rgb(168 85 247) 0%, rgb(168 85 247) ${(progress / 180) * 100}%, rgb(75 85 99) ${(progress / 180) * 100}%, rgb(75 85 99) 100%)`
+                                    }}
+                                 />
+                              </div>
+                              <span className="text-white/60 text-xs font-medium tabular-nums">3:00</span>
+                           </div>
+                        </div>
+
+                        {/* RIGHT: Volume Control - 30% width */}
+                        <div className="flex items-center gap-3 w-[30%] justify-end">
+                           <Volume2 className="w-5 h-5 text-white/60 flex-shrink-0" />
+                           <div className="relative group w-24">
+                              <input
+                                 type="range"
+                                 min="0"
+                                 max="100"
+                                 value={volume}
+                                 onChange={(e) => setVolume(Number(e.target.value))}
+                                 className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer transition-all group-hover:h-1.5"
+                                 style={{
+                                    background: `linear-gradient(to right, rgb(168 85 247) 0%, rgb(168 85 247) ${volume}%, rgb(75 85 99) ${volume}%, rgb(75 85 99) 100%)`
+                                 }}
+                              />
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               )}
+
                {/* TRACKS + PLAY/REFRESH HEADER */}
                <div className="bg-black/20 rounded-xl p-8">
                   <div className="flex items-center justify-between mb-6">
@@ -405,13 +656,28 @@ const PlaylistView = ({ onCreateNew }) => {
                                     </p>
                                  </div>
                               </div>
-                              <button
-                                 onClick={() => handleRemoveTrack(track.id)}
-                                 className="p-2 rounded-full bg-red-500/70 hover:bg-red-600 text-white"
-                                 title="Remove track from playlist"
-                              >
-                                 <X className="w-5 h-5" />
-                              </button>
+                              <div className="flex items-center gap-4">
+                                 <button
+                                    onClick={() => toggleLike(track.id)}
+                                    className={`p-2 hover:scale-110 transition-all ${likedTrackIds.has(track.id)
+                                       ? 'text-red-500'
+                                       : 'text-gray-500 hover:text-rose-500'
+                                       }`}
+                                    title="Like track"
+                                 >
+                                    <Heart
+                                       className="w-6 h-6"
+                                       fill={likedTrackIds.has(track.id) ? 'currentColor' : 'none'}
+                                    />
+                                 </button>
+                                 <button
+                                    onClick={() => handleRemoveTrack(track.id)}
+                                    className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all"
+                                    title="Remove track from playlist"
+                                 >
+                                    <X className="w-6 h-6" />
+                                 </button>
+                              </div>
                            </div>
                         ))}
                      </div>
@@ -442,8 +708,8 @@ const PlaylistView = ({ onCreateNew }) => {
                                     isBlocked ? handleUnblock(key) : handleBlockGenre(genre)
                                  }
                                  className={`px-4 py-2 rounded-full text-base flex items-center gap-2 transition-all ${isBlocked
-                                       ? 'bg-red-500/50 text-white line-through opacity-70'
-                                       : 'bg-purple-500/30 text-white hover:bg-red-500/30'
+                                    ? 'bg-red-500/50 text-white line-through opacity-70'
+                                    : 'bg-purple-500/30 text-white hover:bg-red-500/30'
                                     }`}
                               >
                                  {genre}
