@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Music, ArrowRight, User, Mail, Calendar, MapPin, Lock, Eye, EyeOff, ChevronDown } from 'lucide-react';
 
 const USER_DRAFT_KEY = 'pplay_user_draft';
@@ -55,6 +55,7 @@ const RegistrationScreen = ({ onComplete }) => {
    const [showPassword, setShowPassword] = useState(false);
 
    const [isCountryOpen, setIsCountryOpen] = useState(false);
+   const [countryQuery, setCountryQuery] = useState('');
    const dropdownRef = useRef(null);
 
    // This is Rotem's fix: Define "today" to block future dates
@@ -70,6 +71,12 @@ const RegistrationScreen = ({ onComplete }) => {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
    }, []);
+
+   useEffect(() => {
+      if (!isCountryOpen) {
+         setCountryQuery('');
+      }
+   }, [isCountryOpen]);
 
    const countries = [
       { code: 'AF', name: 'Afghanistan' },
@@ -268,13 +275,35 @@ const RegistrationScreen = ({ onComplete }) => {
       return { strength: 100, label: 'Strong', color: 'bg-green-500' };
    };
 
+   const hebrewDisplay = useMemo(() => {
+      try {
+         return new Intl.DisplayNames(['he'], { type: 'region' });
+      } catch (e) {
+         return null;
+      }
+   }, []);
+
+   const countriesWithLocale = useMemo(() => (
+      countries.map((country) => ({
+         ...country,
+         hebrewName: hebrewDisplay ? (hebrewDisplay.of(country.code) || '') : ''
+      }))
+   ), [countries, hebrewDisplay]);
+
    const passwordStrength = getPasswordStrength();
-   const selectedCountry = countries.find(c => c.code === userData.country);
+   const selectedCountry = countriesWithLocale.find(c => c.code === userData.country);
+   const normalizedQuery = countryQuery.trim().toLowerCase();
+   const filteredCountries = countriesWithLocale.filter(({ name, hebrewName, code }) => {
+      if (!normalizedQuery) return true;
+      const englishMatch = name.toLowerCase().includes(normalizedQuery) || code.toLowerCase().includes(normalizedQuery);
+      const hebrewMatch = hebrewName && hebrewName.toLowerCase().includes(normalizedQuery);
+      return englishMatch || hebrewMatch;
+   });
 
    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-6">
-         <div className="max-w-md w-full">
-            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 space-y-6">
+      <div className="min-h-screen h-full bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-6 py-12">
+         <div className="max-w-4xl w-full">
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 lg:p-10 space-y-6">
                {/* Header */}
                <div className="text-center space-y-4 mb-8">
                   <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 inline-block">
@@ -285,7 +314,7 @@ const RegistrationScreen = ({ onComplete }) => {
                </div>
 
                {/* Form Fields */}
-               <div className="space-y-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* First Name */}
                   <div>
                      <label className="block text-white font-medium mb-2 flex items-center gap-2">
@@ -321,7 +350,7 @@ const RegistrationScreen = ({ onComplete }) => {
                   </div>
 
                   {/* Email */}
-                  <div>
+                  <div className="md:col-span-2">
                      <label className="block text-white font-medium mb-2 flex items-center gap-2">
                         <Mail className="w-4 h-4" />
                         Email
@@ -338,7 +367,7 @@ const RegistrationScreen = ({ onComplete }) => {
                   </div>
 
                   {/* Password */}
-                  <div>
+                  <div className="md:col-span-2">
                      <label className="block text-white font-medium mb-2 flex items-center gap-2">
                         <Lock className="w-4 h-4" />
                         Password
@@ -463,30 +492,45 @@ const RegistrationScreen = ({ onComplete }) => {
                      </button>
 
                      {isCountryOpen && (
-                        <div className="absolute z-50 w-full mt-2 bg-gray-900 border border-white/20 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
-                           {countries.map((country) => (
-                              <button
-                                 key={country.code}
-                                 type="button"
-                                 onClick={() => {
-                                    handleChange('country', country.code);
-                                    setIsCountryOpen(false);
-                                 }}
-                                 className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/10 text-white transition-colors text-left"
-                              >
-                                 <img
-                                    src={`https://flagcdn.com/w20/${country.code.toLowerCase()}.png`}
-                                    srcSet={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png 2x`}
-                                    width="20"
-                                    alt={country.name}
-                                    className="rounded-sm"
-                                 />
-                                 <span>{country.name}</span>
-                                 {userData.country === country.code && (
-                                    <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
-                                 )}
-                              </button>
-                           ))}
+                        <div className="absolute z-50 w-full mt-2 bg-gray-900 border border-white/20 rounded-xl shadow-xl max-h-72 overflow-hidden">
+                           <div className="p-3 border-b border-white/10 bg-black/20">
+                              <input
+                                 type="text"
+                                 value={countryQuery}
+                                 onChange={(e) => setCountryQuery(e.target.value)}
+                                 placeholder="Search country..."
+                                 className="w-full px-3 py-2 rounded-lg bg-white/10 text-white placeholder-white/50 border border-white/20 focus:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500/30"
+                                 autoFocus
+                              />
+                           </div>
+                           <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                              {filteredCountries.map((country) => (
+                                 <button
+                                    key={country.code}
+                                    type="button"
+                                    onClick={() => {
+                                       handleChange('country', country.code);
+                                       setIsCountryOpen(false);
+                                    }}
+                                    className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/10 text-white transition-colors text-left"
+                                 >
+                                    <img
+                                       src={`https://flagcdn.com/w20/${country.code.toLowerCase()}.png`}
+                                       srcSet={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png 2x`}
+                                       width="20"
+                                       alt={country.name}
+                                       className="rounded-sm"
+                                    />
+                                    <span>{country.name}</span>
+                                    {userData.country === country.code && (
+                                       <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
+                                    )}
+                                 </button>
+                              ))}
+                              {filteredCountries.length === 0 && (
+                                 <div className="px-4 py-3 text-white/60 text-sm">No countries found</div>
+                              )}
+                           </div>
                         </div>
                      )}
 
@@ -497,7 +541,7 @@ const RegistrationScreen = ({ onComplete }) => {
                {/* Submit Button */}
                <button
                   onClick={handleSubmit}
-                  className="w-full bg-gradient-to-r from-pink-500 to-violet-500 text-white py-4 rounded-2xl font-bold text-lg hover:shadow-2xl hover:shadow-pink-500/50 transition-all transform hover:scale-105 flex items-center justify-center gap-2"
+                  className="w-full mt-6 bg-gradient-to-r from-pink-500 to-violet-500 text-white py-4 rounded-2xl font-bold text-lg hover:shadow-2xl hover:shadow-pink-500/50 transition-all transform hover:scale-105 flex items-center justify-center gap-2"
                >
                   <span>Continue</span>
                   <ArrowRight className="w-5 h-5" />
