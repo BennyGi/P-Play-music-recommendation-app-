@@ -26,7 +26,10 @@ import {
    getRecommendations
 } from '../services/spotifyService';
 
-const PlaylistView = ({ onCreateNew }) => {
+   const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
+      console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
+console.log("typeof isLiked:", typeof isLiked);
+
    // --- DATA STATE ---
    const [userData] = useState(StorageService.getUserData());
    const [preferences] = useState(StorageService.getPreferences());
@@ -46,7 +49,6 @@ const PlaylistView = ({ onCreateNew }) => {
    const [volume, setVolume] = useState(75);
 
    // Player Features
-   const [likedTrackIds, setLikedTrackIds] = useState(new Set());
    const [isShuffle, setIsShuffle] = useState(false);
    const [repeatMode, setRepeatMode] = useState('off'); // 'off', 'all', 'one'
    const [history, setHistory] = useState([]);
@@ -235,14 +237,7 @@ const PlaylistView = ({ onCreateNew }) => {
       setIsPlaying(true);
    };
 
-   const toggleLike = (trackId) => {
-      setLikedTrackIds(prev => {
-         const newSet = new Set(prev);
-         if (newSet.has(trackId)) newSet.delete(trackId);
-         else newSet.add(trackId);
-         return newSet;
-      });
-   };
+   
 
    // --- HANDLERS: Playlist Management (Restored from Nir) ---
    const handleRefreshPlaylist = async () => {
@@ -409,9 +404,13 @@ const PlaylistView = ({ onCreateNew }) => {
                                  </a>
                               )}
                            </div>
-                           <button onClick={() => toggleLike(currentTrack.id)} className={`p-2 rounded-full ${likedTrackIds.has(currentTrack.id) ? 'text-red-500' : 'text-gray-400'}`}>
-                              <Heart className="w-6 h-6" fill={likedTrackIds.has(currentTrack.id) ? 'currentColor' : 'none'} />
-                           </button>
+                           <button
+                              onClick={() => toggleLikedSong(currentTrack)}
+                              className={`p-2 rounded-full ${isLiked(currentTrack.id) ? 'text-red-500' : 'text-gray-400'}`}
+                              >
+                              <Heart className="w-6 h-6" fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'} />
+                              </button>
+
                         </div>
 
                         {/* Controls */}
@@ -474,9 +473,13 @@ const PlaylistView = ({ onCreateNew }) => {
                               </div>
                            </div>
                            <div className="flex items-center gap-4">
-                              <button onClick={() => toggleLike(track.id)} className={`p-2 ${likedTrackIds.has(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}>
-                                 <Heart className="w-6 h-6" fill={likedTrackIds.has(track.id) ? 'currentColor' : 'none'} />
-                              </button>
+                              <button
+                                 onClick={() => toggleLikedSong(track)}
+                                 className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
+                                 >
+                                 <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
+                                 </button>
+
                               {/* Restored X Button */}
                               <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
                                  <X className="w-6 h-6" />
