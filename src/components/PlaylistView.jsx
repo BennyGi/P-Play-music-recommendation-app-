@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import { MusicDbService } from '../services/musicDbService'; // IMPORTED NEW SERVICE
+import EmptyState from './EmptyState';
+import { buildWhatsAppShareUrl } from '../utils/whatsappShare';
 // Removed unused Spotify imports to avoid confusion/errors
 // import { getPopularTracksForCountry, getRecommendations } from '../services/spotifyService';
 
@@ -322,8 +324,30 @@ console.log("typeof isLiked:", typeof isLiked);
       return `${m}:${s < 10 ? '0' : ''}${s}`;
    };
 
+   const handleShareOnWhatsApp = () => {
+      const spotifyUrl = currentTrack?.spotifyUrl || suggestedTracks.find((t) => t?.spotifyUrl)?.spotifyUrl;
+      const playlistTitle = userData?.firstName ? `${userData.firstName}'s Playlist` : 'P-Play Playlist';
+
+      const url = buildWhatsAppShareUrl({
+         playlistTitle,
+         tracks: suggestedTracks,
+         spotifyUrl
+      });
+
+      window.open(url, '_blank', 'noopener,noreferrer');
+   };
+
    // --- RENDER HELPERS ---
-   if (!playlist) return <div className="text-white p-10">Loading...</div>;
+   if (!playlist || !playlist?.tracks || playlist.tracks.length === 0) {
+      return (
+         <EmptyState
+            title="Empty Library"
+            subtitle="No playlists yet. Create one to start listening."
+            actionLabel="Create Playlist"
+            onAction={onCreateNew}
+         />
+      );
+   }
 
    const genreNames = {
       1: 'Pop', 2: 'Rock', 3: 'Hip Hop', 4: 'Rap', 5: 'Electronic',
@@ -402,6 +426,13 @@ console.log("typeof isLiked:", typeof isLiked);
                                     <ExternalLink className="w-3 h-3" /> Listen on Spotify
                                  </a>
                               )}
+
+                              <button
+                                 onClick={handleShareOnWhatsApp}
+                                 className="mt-2 inline-flex items-center gap-2 text-xs bg-green-500/20 hover:bg-green-500/30 text-green-200 px-3 py-1.5 rounded-full transition-colors"
+                              >
+                                 Share On WhatsApp
+                              </button>
                            </div>
                            <button
                               onClick={() => toggleLikedSong(currentTrack)}
