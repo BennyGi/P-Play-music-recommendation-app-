@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { CheckCircle, Music, Heart, Info } from 'lucide-react'; // Added Heart & Info imports
+import { CheckCircle, Music, Heart, Info } from 'lucide-react';
 import RegistrationScreen from './components/onboarding/RegistrationScreen';
 import WelcomeScreen from './components/onboarding/WelcomeScreen';
 import GenreSelection from './components/onboarding/GenreSelection';
@@ -9,9 +9,11 @@ import ArtistSelection from './components/onboarding/ArtistSelection';
 import PlaylistView from './components/PlaylistView';
 import { StorageService } from './utils/storage';
 import Sprint1Complete from './components/Sprint1Complete';
-//new import
+
+// --- IMPORTS FOR MERGE COMPATIBILITY ---
+// We keep Alexander's DB service imported so the file remains in the project
 import { MusicDbService } from './services/musicDbService';
-//old import
+// We use Spotify Service for the actual functionality (Pictures/Links)
 import { getRecommendations, getArtistTopTracks, getPopularTracksForCountry } from './services/spotifyService';
 
 function App() {
@@ -23,14 +25,22 @@ function App() {
    const [selectedLanguages, setSelectedLanguages] = useState([]);
    const [selectedYears, setSelectedYears] = useState({ from: 2010, to: 2025 });
    const [selectedArtists, setSelectedArtists] = useState([]);
-   const [likedSongs, setLikedSongs] = useState(() => StorageService.getLikedSongs());
+
+   // Safe initialization for Liked Songs
+   const [likedSongs, setLikedSongs] = useState(() => {
+      try {
+         return StorageService.getLikedSongs() || [];
+      } catch (e) {
+         return [];
+      }
+   });
 
    const [isLoading, setIsLoading] = useState(false);
    const [isComplete, setIsComplete] = useState(false);
    const [playlistType, setPlaylistType] = useState(null);
 
-   // --- NEW: Toast State ---
-   const [toast, setToast] = useState(null); // { message, type }
+   // Toast State
+   const [toast, setToast] = useState(null);
 
    const goToStep = (step) => {
       const inProgress = onboardingSteps.includes(step);
@@ -78,10 +88,10 @@ function App() {
       StorageService.clearCurrentStep();
    }, []);
 
-   // --- NEW: Toast Helper ---
+   // Toast Helper
    const showToast = (message, type = 'success') => {
       setToast({ message, type });
-      setTimeout(() => setToast(null), 3000); // Hide after 3 seconds
+      setTimeout(() => setToast(null), 3000);
    };
 
    const handleRegistrationComplete = (data) => {
@@ -152,11 +162,15 @@ function App() {
       startGenerationProcess('custom');
    };
 
-   const isLiked = (trackId) => likedSongs.some((t) => t?.id === trackId);
+   const isLiked = (trackId) => {
+      if (!likedSongs || !Array.isArray(likedSongs)) return false;
+      return likedSongs.some((t) => t?.id === trackId);
+   };
 
-   // --- UPDATED: Toggle Like with Toast ---
    const toggleLikedSong = (track) => {
-      const next = StorageService.toggleLike(track);
+      if (!track) return;
+      StorageService.toggleLike(track);
+      const next = StorageService.getLikedSongs() || [];
       setLikedSongs(next);
 
       const isNowLiked = next.some(t => t.id === track.id);
@@ -167,73 +181,64 @@ function App() {
       }
    };
 
+   // --- THE FIXED LOGIC: USING SPOTIFY ---
    const startGenerationProcess = async (type) => {
       setIsLoading(true);
 
       try {
          let tracks = [];
-         // --- ORIGINAL SPOTIFY LOGIC (PRESERVED) ---
-         // const countryCode = userData?.country || 'IL';
-         // tracks = await getPopularTracksForCountry(countryCode, 50);
 
-         /*
-                  if (type === 'default') {
-                     const countryCode = userData?.country || 'IL';
-                     tracks = await getPopularTracksForCountry(countryCode, 50);
-                  } else {
-                     const genreMap = {
-                        1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
-                        6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
-                        11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
-                        16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
-                        21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
-                     };
-
-                     const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
-                     const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
-                     const countryCode = userData?.country || 'US';
-
-                     const recommendedTracks = await getRecommendations(
-                        genreNames.length > 0 ? genreNames : ['pop'],
-                        artistIds,
-                        30,
-                        countryCode
-                     );
-
-                     tracks = [...recommendedTracks];
-
-                     if (artistIds.length > 0) {
-                        const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
-                           getArtistTopTracks(artistId, countryCode)
-                        );
-                        const artistTracksResults = await Promise.all(artistTracksPromises);
-                        const artistTracks = artistTracksResults.flat();
-
-                        const allTracks = [...tracks, ...artistTracks];
-                        const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
-                        tracks = uniqueTracks.slice(0, 50);
-                     }
-                  }
-         */         // === NEW DB SERVICE LOGIC ===
-         // Using MusicDbService to prevent crashes.
-         // Spotify logic below is commented out until API keys are fixed.
-
-         const preferences = {
-            genres: selectedGenres,
-            languages: selectedLanguages,
-            years: selectedYears,
-            artists: selectedArtists
-         };
-
+         // >>>> USING SPOTIFY SERVICE (For Images & Links) <<<<
          if (type === 'default') {
-            // Default Mix (Pop)
-            const result = await MusicDbService.generatePlaylist({ genres: [1] });
-            tracks = result.tracks;
+            const countryCode = userData?.country || 'IL';
+            tracks = await getPopularTracksForCountry(countryCode, 50);
          } else {
-            // Custom Mix
-            const result = await MusicDbService.generatePlaylist(preferences);
-            tracks = result.tracks;
+            const genreMap = {
+               1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
+               6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
+               11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
+               16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
+               21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
+            };
+
+            const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
+            const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
+            const countryCode = userData?.country || 'US';
+
+            const recommendedTracks = await getRecommendations(
+               genreNames.length > 0 ? genreNames : ['pop'],
+               artistIds,
+               30,
+               countryCode
+            );
+
+            tracks = [...recommendedTracks];
+
+            if (artistIds.length > 0) {
+               const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
+                  getArtistTopTracks(artistId, countryCode)
+               );
+               const artistTracksResults = await Promise.all(artistTracksPromises);
+               const artistTracks = artistTracksResults.flat();
+
+               const allTracks = [...tracks, ...artistTracks];
+               const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
+               tracks = uniqueTracks.slice(0, 50);
+            }
          }
+
+         /* >>>> DB SERVICE BACKUP (Commented out) <<<<
+            If we ever want to switch to local DB, uncomment this and comment out Spotify logic above.
+            
+            const preferences = { genres: selectedGenres, languages: selectedLanguages, years: selectedYears, artists: selectedArtists };
+            if (type === 'default') {
+                const result = await MusicDbService.generatePlaylist({ genres: [1] });
+                tracks = result.tracks;
+            } else {
+                const result = await MusicDbService.generatePlaylist(preferences);
+                tracks = result.tracks;
+            }
+         */
 
          const playlistData = {
             type,

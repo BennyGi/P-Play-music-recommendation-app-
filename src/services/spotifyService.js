@@ -91,7 +91,8 @@ export const searchTracks = async (query, market = 'IL', limit = 50) => {
             album: track.album?.name || '',
             duration: Math.floor((track.duration_ms || 0) / 1000),
             popularity: track.popularity || 0,
-            previewUrl: track.preview_url
+            previewUrl: track.preview_url,
+            spotifyUrl: track.external_urls?.spotify // ✅ הוספתי את זה כאן!
          }));
    } catch (error) {
       console.error('❌ searchTracks exception:', error);
@@ -155,7 +156,8 @@ export const getArtistTopTracks = async (artistId, countryCode = 'IL') => {
             album: track.album?.name || '',
             duration: Math.floor((track.duration_ms || 0) / 1000),
             popularity: track.popularity || 0,
-            previewUrl: track.preview_url
+            previewUrl: track.preview_url,
+            spotifyUrl: track.external_urls?.spotify // ✅ וגם כאן!
          }));
    } catch (error) {
       console.error('❌ getArtistTopTracks exception:', error);
