@@ -1,3 +1,5 @@
+import '../services/musicDbService';
+
 const USER_KEY = 'pplay_user';
 const PREF_KEY = 'pplay_preferences';
 const PLAYLISTS_KEY = 'pplay_playlists';
@@ -10,13 +12,20 @@ const IN_PROGRESS_KEY = 'pplay_onboarding_in_progress';
 
 export const StorageService = {
   saveUserData(user) {
+    if (!user) return;
     localStorage.setItem(USER_KEY, JSON.stringify(user));
   },
 
   getUserData() {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem(USER_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      console.error("Storage: Error parsing user data", e);
+      return null;
+    }
   },
+
 
   savePreferences(partial) {
     const existing = this.getPreferences() || {};
@@ -93,6 +102,11 @@ export const StorageService = {
   },
 
   saveLikedSongs(arr) {
+    if (!Array.isArray(arr)) {
+      console.error("Storage: saveLikedSongs expected array", arr);
+      return;
+    }
+
     localStorage.setItem(LIKED_SONGS_KEY, JSON.stringify(arr));
   },
 
@@ -168,13 +182,13 @@ export const StorageService = {
   },
 
   clearAllData() {
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(PREF_KEY);
-    localStorage.removeItem(PLAYLISTS_KEY);
-    localStorage.removeItem(RATINGS_KEY);
-    localStorage.removeItem(BLACKLIST_KEY);
-    localStorage.removeItem(LIKED_SONGS_KEY);
-    localStorage.removeItem(STEP_KEY);
-    localStorage.removeItem(IN_PROGRESS_KEY);
+    localStorage.clear();
+    console.log("Storage: All data cleared.");
   }
 };
+
+// Expose to Window for Console Testing (DBA Tool)
+if (typeof window !== 'undefined') {
+  window.StorageService = StorageService;
+}
+

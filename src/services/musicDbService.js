@@ -18,6 +18,7 @@ export const MusicDbService = {
         return tags[id] || 'pop';
     },
 
+    // --- SPRINT 1 LOGIC (Preserved for backward compatibility) ---
     async fetchRecommendations(genreIds) {
         if (!genreIds || genreIds.length === 0) return { tracks: [], artists: [] };
 
@@ -63,5 +64,56 @@ export const MusicDbService = {
                 artists: []
             };
         }
+    },
+    // --- SPRINT 2 NEW LOGIC (Task 4.2 & Smart Queries) ---
+    // Handles partial preferences (Skip) and returns real track structure
+    async generatePlaylist(preferences) {
+        console.log("DB: Generating playlist with preferences:", preferences);
+
+        const genreIds = preferences.genres || [];
+        // Note: languages and years are passed but Last.fm API support for them is limited.
+        // We simulate the "Smart Query" by prioritizing the Genre, which is mandatory.
+
+        // 1. Logic: If genres are skipped (empty), fallback to 'pop'
+        let tag = 'pop';
+        if (genreIds.length > 0) {
+            const randomGenreId = genreIds[Math.floor(Math.random() * genreIds.length)];
+            tag = this.getGenreTag(randomGenreId);
+        }
+
+        try {
+            // Fetch more tracks (limit=50) to allow for client-side filtering if needed later
+            const response = await fetch(`${BASE_URL}?method=tag.gettoptracks&tag=${tag}&api_key=${API_KEY}&format=json&limit=50`);
+            const data = await response.json();
+
+            const rawTracks = data.tracks?.track || [];
+
+            // Transform to "Real Track" Object for Player
+            const tracks = rawTracks.map(t => ({
+                id: `track_${t.mbid || t.name.replace(/\s/g, '')}_${Date.now().toString(36)}`, // Unique ID
+                title: t.name,
+                artist: t.artist.name,
+                url: t.url, // Last.fm link
+                previewUrl: null, // Last.fm doesn't provide audio previews, will need Spotify/iTunes fallback later
+                image: t.image?.[2]?.['#text'] || 'https://placehold.co/300', // Large image
+                duration: '0:30' // Placeholder
+            }));
+
+            return {
+                name: `My ${tag.charAt(0).toUpperCase() + tag.slice(1)} Mix`,
+                description: `Generated based on ${tag} and your preferences.`,
+                tracks: tracks
+            };
+
+        } catch (error) {
+            console.error("MusicDbService: Error generating playlist", error);
+            return { name: "Error Mix", tracks: [] };
+        }
     }
 };
+
+// Expose for Alexander's DBA Console Testing
+if (typeof window !== 'undefined') {
+    console.log("✅ DB SERVICE LOADED - You can now use window.MusicDbService");
+    window.MusicDbService = MusicDbService;
+}

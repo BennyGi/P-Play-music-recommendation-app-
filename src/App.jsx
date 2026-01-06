@@ -9,6 +9,9 @@ import ArtistSelection from './components/onboarding/ArtistSelection';
 import PlaylistView from './components/PlaylistView';
 import { StorageService } from './utils/storage';
 import Sprint1Complete from './components/Sprint1Complete';
+//new import
+import { MusicDbService } from './services/musicDbService';
+//old import
 import { getRecommendations, getArtistTopTracks, getPopularTracksForCountry } from './services/spotifyService';
 
 function App() {
@@ -169,43 +172,67 @@ function App() {
 
       try {
          let tracks = [];
+         // --- ORIGINAL SPOTIFY LOGIC (PRESERVED) ---
+         // const countryCode = userData?.country || 'IL';
+         // tracks = await getPopularTracksForCountry(countryCode, 50);
+
+         /*
+                  if (type === 'default') {
+                     const countryCode = userData?.country || 'IL';
+                     tracks = await getPopularTracksForCountry(countryCode, 50);
+                  } else {
+                     const genreMap = {
+                        1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
+                        6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
+                        11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
+                        16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
+                        21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
+                     };
+
+                     const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
+                     const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
+                     const countryCode = userData?.country || 'US';
+
+                     const recommendedTracks = await getRecommendations(
+                        genreNames.length > 0 ? genreNames : ['pop'],
+                        artistIds,
+                        30,
+                        countryCode
+                     );
+
+                     tracks = [...recommendedTracks];
+
+                     if (artistIds.length > 0) {
+                        const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
+                           getArtistTopTracks(artistId, countryCode)
+                        );
+                        const artistTracksResults = await Promise.all(artistTracksPromises);
+                        const artistTracks = artistTracksResults.flat();
+
+                        const allTracks = [...tracks, ...artistTracks];
+                        const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
+                        tracks = uniqueTracks.slice(0, 50);
+                     }
+                  }
+         */         // === NEW DB SERVICE LOGIC ===
+         // Using MusicDbService to prevent crashes.
+         // Spotify logic below is commented out until API keys are fixed.
+
+         const preferences = {
+            genres: selectedGenres,
+            languages: selectedLanguages,
+            years: selectedYears,
+            artists: selectedArtists
+         };
 
          if (type === 'default') {
-            const countryCode = userData?.country || 'IL';
-            tracks = await getPopularTracksForCountry(countryCode, 50);
+            // Default Mix (Pop)
+            const result = await MusicDbService.generatePlaylist({ genres: [1] });
+            tracks = result.tracks;
          } else {
-            const genreMap = {
-               1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
-               6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
-               11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
-               16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
-               21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
-            };
-
-            const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
-            const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
-            const countryCode = userData?.country || 'US';
-
-            const recommendedTracks = await getRecommendations(
-               genreNames.length > 0 ? genreNames : ['pop'],
-               artistIds,
-               30,
-               countryCode
-            );
-
-            tracks = [...recommendedTracks];
-
-            if (artistIds.length > 0) {
-               const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
-                  getArtistTopTracks(artistId, countryCode)
-               );
-               const artistTracksResults = await Promise.all(artistTracksPromises);
-               const artistTracks = artistTracksResults.flat();
-
-               const allTracks = [...tracks, ...artistTracks];
-               const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
-               tracks = uniqueTracks.slice(0, 50);
-            }
+            // Custom Mix
+            const result = await MusicDbService.generatePlaylist(preferences);
+            tracks = result.tracks;
          }
 
          const playlistData = {

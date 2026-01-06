@@ -21,10 +21,9 @@ import {
    ExternalLink
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
-import {
-   getPopularTracksForCountry,
-   getRecommendations
-} from '../services/spotifyService';
+import { MusicDbService } from '../services/musicDbService'; // IMPORTED NEW SERVICE
+// Removed unused Spotify imports to avoid confusion/errors
+// import { getPopularTracksForCountry, getRecommendations } from '../services/spotifyService';
 
    const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
       console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
