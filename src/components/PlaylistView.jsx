@@ -565,6 +565,46 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       window.open(url, '_blank', 'noopener,noreferrer');
    };
 
+   const getSavedPlaylists = () => {
+      try {
+         const stored = JSON.parse(localStorage.getItem('my_playlists'));
+         return Array.isArray(stored) ? stored : [];
+      } catch (e) {
+         console.warn('Failed to parse saved playlists, resetting key.', e);
+         return [];
+      }
+   };
+
+   const handleSaveToLibrary = () => {
+      if (!suggestedTracks || suggestedTracks.length === 0) {
+         alert('No tracks available to save. Generate a playlist first.');
+         return;
+      }
+
+      const existing = getSavedPlaylists();
+      const rawName = window.prompt('Name your playlist');
+
+      if (rawName === null) {
+         const proceed = window.confirm('Save this playlist with a default name?');
+         if (!proceed) return;
+      }
+
+      const trimmed = (rawName || '').trim();
+      const finalName = trimmed || `Playlist ${existing.length + 1}`;
+
+      const playlistToSave = {
+         id: Date.now(),
+         name: finalName,
+         tracks: suggestedTracks,
+         date: new Date().toISOString()
+      };
+
+      const updated = [...existing, playlistToSave];
+      localStorage.setItem('my_playlists', JSON.stringify(updated));
+
+      alert(`Saved "${finalName}" to your library.`);
+   };
+
    // --- RENDER HELPERS ---
    if (!playlist || !playlist?.tracks || playlist.tracks.length === 0) {
       return (
@@ -607,9 +647,17 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            </p>
                         </div>
                      </div>
-                     <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
-                        <RefreshCw className="w-5 h-5" /> New Playlist
-                     </button>
+                     <div className="flex items-center gap-3">
+                        <button
+                           onClick={handleSaveToLibrary}
+                           className="flex items-center gap-2 bg-green-500/20 hover:bg-green-500/30 text-green-100 px-5 py-3 rounded-lg border border-green-300/20"
+                        >
+                           <Download className="w-5 h-5" /> Save to Library
+                        </button>
+                        <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
+                           <RefreshCw className="w-5 h-5" /> New Playlist
+                        </button>
+                     </div>
                   </div>
 
                   <div className="grid md:grid-cols-3 gap-6">

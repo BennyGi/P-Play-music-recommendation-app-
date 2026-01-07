@@ -9,6 +9,7 @@ import LanguageSelection from './components/onboarding/LanguageSelection';
 import YearSelection from './components/onboarding/YearSelection';
 import ArtistSelection from './components/onboarding/ArtistSelection';
 import PlaylistView from './components/PlaylistView';
+import PlaylistLibrary from './components/PlaylistLibrary';
 import { StorageService } from './utils/storage';
 import Sprint1Complete from './components/Sprint1Complete';
 
@@ -30,6 +31,7 @@ function App() {
    const [selectedLanguages, setSelectedLanguages] = useState([]);
    const [selectedYears, setSelectedYears] = useState({ from: 2010, to: 2025 });
    const [selectedArtists, setSelectedArtists] = useState([]);
+   const [activeView, setActiveView] = useState('generator');
 
    const [likedSongs, setLikedSongs] = useState(() => {
       try {
@@ -85,6 +87,12 @@ function App() {
          setCurrentStep('landing');
       }
    }, []);
+
+   useEffect(() => {
+      if (currentStep !== 'playlist') {
+         setActiveView('generator');
+      }
+   }, [currentStep]);
 
    const showToast = (message, type = 'success') => {
       setToast({ message, type });
@@ -411,6 +419,23 @@ function App() {
             </div>
          )}
 
+         {userData && currentStep !== 'landing' && currentStep !== 'login' && currentStep !== 'registration' && (
+            <div className="absolute top-6 right-6 z-50 flex gap-2 bg-white/10 backdrop-blur-xl border border-white/10 rounded-full p-1">
+               <button
+                  onClick={() => setActiveView('generator')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeView === 'generator' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
+               >
+                  Generator
+               </button>
+               <button
+                  onClick={() => setActiveView('library')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeView === 'library' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
+               >
+                  My Library
+               </button>
+            </div>
+         )}
+
          {/* Toast Notification Component */}
          {toast && (
             <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : 'bg-gray-800 text-white'
@@ -425,85 +450,94 @@ function App() {
          )}
 
          {/* --- SCREENS --- */}
-         {currentStep === 'landing' && (
-            <LandingScreen
-               onLoginClick={() => setCurrentStep('login')}
-               onSignupClick={() => setCurrentStep('registration')}
+         {activeView === 'library' ? (
+            <PlaylistLibrary
+               onBack={() => setActiveView('generator')}
+               onLoadPlaylist={(playlist) => console.log('Load playlist', playlist)}
             />
-         )}
+         ) : (
+            <>
+               {currentStep === 'landing' && (
+                  <LandingScreen
+                     onLoginClick={() => setCurrentStep('login')}
+                     onSignupClick={() => setCurrentStep('registration')}
+                  />
+               )}
 
-         {currentStep === 'login' && (
-            <LoginScreen
-               onLoginSuccess={handleLoginSuccess}
-               onBack={() => setCurrentStep('landing')}
-            />
-         )}
+               {currentStep === 'login' && (
+                  <LoginScreen
+                     onLoginSuccess={handleLoginSuccess}
+                     onBack={() => setCurrentStep('landing')}
+                  />
+               )}
 
-         {/* Registration with onBack prop */}
-         {currentStep === 'registration' && (
-            <RegistrationScreen
-               onComplete={handleRegistrationComplete}
-               onBack={() => setCurrentStep('landing')}
-            />
-         )}
+               {/* Registration with onBack prop */}
+               {currentStep === 'registration' && (
+                  <RegistrationScreen
+                     onComplete={handleRegistrationComplete}
+                     onBack={() => setCurrentStep('landing')}
+                  />
+               )}
 
-         {currentStep === 'welcome' && (
-            <WelcomeScreen
-               userData={userData}
-               onCustomPlaylist={handleCustomPlaylist}
-               onDefaultPlaylist={handleDefaultPlaylist}
-            />
-         )}
+               {currentStep === 'welcome' && (
+                  <WelcomeScreen
+                     userData={userData}
+                     onCustomPlaylist={handleCustomPlaylist}
+                     onDefaultPlaylist={handleDefaultPlaylist}
+                  />
+               )}
 
-         {currentStep === 'genres' && (
-            <GenreSelection
-               initialSelected={selectedGenres}
-               onContinue={handleGenreContinue}
-               onSkip={handleGenreSkip}
-               onBack={() => goToStep('welcome')}
-            />
-         )}
+               {currentStep === 'genres' && (
+                  <GenreSelection
+                     initialSelected={selectedGenres}
+                     onContinue={handleGenreContinue}
+                     onSkip={handleGenreSkip}
+                     onBack={() => goToStep('welcome')}
+                  />
+               )}
 
-         {currentStep === 'languages' && (
-            <LanguageSelection
-               initialSelected={selectedLanguages}
-               onContinue={handleLanguageContinue}
-               onSkip={handleLanguageSkip}
-               onBack={() => goToStep('genres')}
-            />
-         )}
+               {currentStep === 'languages' && (
+                  <LanguageSelection
+                     initialSelected={selectedLanguages}
+                     onContinue={handleLanguageContinue}
+                     onSkip={handleLanguageSkip}
+                     onBack={() => goToStep('genres')}
+                  />
+               )}
 
-         {currentStep === 'years' && (
-            <YearSelection
-               initialSelected={selectedYears}
-               onContinue={handleYearContinue}
-               onSkip={handleYearSkip}
-               onBack={() => goToStep('languages')}
-            />
-         )}
+               {currentStep === 'years' && (
+                  <YearSelection
+                     initialSelected={selectedYears}
+                     onContinue={handleYearContinue}
+                     onSkip={handleYearSkip}
+                     onBack={() => goToStep('languages')}
+                  />
+               )}
 
-         {currentStep === 'artists' && (
-            <ArtistSelection
-               initialSelected={selectedArtists}
-               selectedGenres={selectedGenres}
-               selectedLanguages={selectedLanguages}
-               selectedYears={selectedYears}
-               onContinue={handleArtistContinue}
-               onSkip={handleArtistSkip}
-               onBack={() => goToStep('years')}
-            />
-         )}
+               {currentStep === 'artists' && (
+                  <ArtistSelection
+                     initialSelected={selectedArtists}
+                     selectedGenres={selectedGenres}
+                     selectedLanguages={selectedLanguages}
+                     selectedYears={selectedYears}
+                     onContinue={handleArtistContinue}
+                     onSkip={handleArtistSkip}
+                     onBack={() => goToStep('years')}
+                  />
+               )}
 
-         {currentStep === 'playlist' && (
-            <PlaylistView
-               onCreateNew={handleCreateNew}
-               likedSongs={likedSongs}
-               toggleLikedSong={toggleLikedSong}
-               isLiked={isLiked}
-            />
-         )}
+               {currentStep === 'playlist' && (
+                  <PlaylistView
+                     onCreateNew={handleCreateNew}
+                     likedSongs={likedSongs}
+                     toggleLikedSong={toggleLikedSong}
+                     isLiked={isLiked}
+                  />
+               )}
 
-         {currentStep === 'sprint1complete' && <Sprint1Complete />}
+               {currentStep === 'sprint1complete' && <Sprint1Complete />}
+            </>
+         )}
       </div>
    );
 }
