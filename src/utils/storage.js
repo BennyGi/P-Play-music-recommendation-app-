@@ -1,280 +1,362 @@
 ﻿import '../services/musicDbService';
 
-const CURRENT_USER_KEY = 'pplay_current_user';
-const USERS_DB_KEY = 'pplay_users_db';
-const PREF_KEY = 'pplay_preferences';
-const PLAYLISTS_KEY = 'pplay_playlists';
-const RATINGS_KEY = 'pplay_ratings';
-const BLACKLIST_KEY = 'pplay_blacklist';
-const LIKED_SONGS_KEY = 'pplay_liked_songs';
-const PASSWORD_RESETS_KEY = 'pplay_password_resets';
+// =====================================================
+//   STORAGE SERVICE - Fixed with Per-User Liked Songs
+// =====================================================
 
-const STEP_KEY = 'pplay_current_step';
-const IN_PROGRESS_KEY = 'pplay_onboarding_in_progress';
+const STORAGE_KEYS = {
+   USERS: 'pplay_users',
+   ACTIVE_USER: 'pplay_active_user',
+   PREFERENCES: 'pplay_preferences',
+   PLAYLISTS: 'pplay_playlists',
+   LIKED_SONGS_PREFIX: 'pplay_liked_songs_', // Per-user: pplay_liked_songs_user@email.com
+   BLACKLIST: 'pplay_blacklist',
+   ONBOARDING_IN_PROGRESS: 'pplay_onboarding_in_progress',
+   CURRENT_STEP: 'pplay_current_step',
+   LIBRARY_PLAYLISTS_PREFIX: 'pplay_library_' // Per-user: pplay_library_user@email.com
+};
+
+// Helper to safely parse JSON
+const safeJsonParse = (str, fallback = null) => {
+   try {
+      return str ? JSON.parse(str) : fallback;
+   } catch (e) {
+      console.warn('Failed to parse JSON:', e);
+      return fallback;
+   }
+};
+
+// Helper to safely stringify and store
+const safeSetItem = (key, value) => {
+   try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+   } catch (e) {
+      console.error('Failed to save to localStorage:', e);
+      if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+         console.error('LocalStorage quota exceeded!');
+      }
+      return false;
+   }
+};
+
+// Get current user's email for per-user storage keys
+const getCurrentUserKey = () => {
+   const user = safeJsonParse(localStorage.getItem(STORAGE_KEYS.ACTIVE_USER));
+   return user?.email?.toLowerCase() || 'guest';
+};
 
 export const StorageService = {
-   // --- AUTH SYSTEM ---
+   // =====================================================
+   //   USER MANAGEMENT
+   // =====================================================
 
-   // Register: save new user to DB and log them in
    registerUser(userData) {
       const users = this.getAllUsers();
+      const existingUser = users.find(
+         (u) => u.email.toLowerCase() === userData.email.toLowerCase()
+      );
 
-      // Check if email exists
-      if (users.some(u => u.email === userData.email)) {
-         throw new Error("User with this email already exists");
+      if (existingUser) {
+         throw new Error('Email already registered');
       }
 
-      // Add to DB
       users.push(userData);
-      localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+      safeSetItem(STORAGE_KEYS.USERS, users);
+      safeSetItem(STORAGE_KEYS.ACTIVE_USER, userData);
 
-      // Auto-login after registration
-      this.saveCurrentUser(userData);
+      return userData;
    },
 
-   // Login: verify email and password
    loginUser(email, password) {
       const users = this.getAllUsers();
-      const user = users.find(u => u.email === email && u.password === password);
+      const user = users.find(
+         (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+      );
 
-      if (user) {
-         this.saveCurrentUser(user);
-         return user;
+      if (!user) {
+         throw new Error('Invalid email or password');
       }
-      return null;
+
+      safeSetItem(STORAGE_KEYS.ACTIVE_USER, user);
+      return user;
    },
 
    logoutUser() {
-      localStorage.removeItem(CURRENT_USER_KEY);
-      localStorage.removeItem(STEP_KEY);
-      localStorage.removeItem(IN_PROGRESS_KEY);
-   },
-
-   getAllUsers() {
-      try {
-         const raw = localStorage.getItem(USERS_DB_KEY);
-         return raw ? JSON.parse(raw) : [];
-      } catch {
-         return [];
-      }
-   },
-
-   // --- PASSWORD RESET ---
-
-   savePasswordResetToken(email, token) {
-      const resets = this.getPasswordResets();
-      // Remove old resets for this email
-      const filteredResets = resets.filter(r => r.email !== email);
-      filteredResets.push({
-         email,
-         token,
-         expiry: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
-         used: false
-      });
-      localStorage.setItem(PASSWORD_RESETS_KEY, JSON.stringify(filteredResets));
-   },
-
-   getPasswordResets() {
-      try {
-         const raw = localStorage.getItem(PASSWORD_RESETS_KEY);
-         return raw ? JSON.parse(raw) : [];
-      } catch {
-         return [];
-      }
-   },
-
-   validateResetToken(token) {
-      const resets = this.getPasswordResets();
-      const reset = resets.find(r => r.token === token && !r.used && r.expiry > Date.now());
-      return reset || null;
-   },
-
-   resetPassword(token, newPassword) {
-      const reset = this.validateResetToken(token);
-      if (!reset) return false;
-
-      // Update user password
-      const users = this.getAllUsers();
-      const userIndex = users.findIndex(u => u.email === reset.email);
-
-      if (userIndex === -1) return false;
-
-      users[userIndex].password = newPassword;
-      localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
-
-      // Mark token as used
-      const resets = this.getPasswordResets();
-      const resetIndex = resets.findIndex(r => r.token === token);
-      if (resetIndex !== -1) {
-         resets[resetIndex].used = true;
-         localStorage.setItem(PASSWORD_RESETS_KEY, JSON.stringify(resets));
-      }
-
-      return true;
-   },
-
-   // --- CURRENT SESSION MANAGEMENT ---
-
-   saveCurrentUser(user) {
-      if (!user) return;
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER);
+      localStorage.removeItem(STORAGE_KEYS.PREFERENCES);
+      localStorage.removeItem(STORAGE_KEYS.PLAYLISTS);
+      localStorage.removeItem(STORAGE_KEYS.ONBOARDING_IN_PROGRESS);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_STEP);
+      // Note: We don't remove liked songs or library - they stay per-user
    },
 
    getUserData() {
-      try {
-         const raw = localStorage.getItem(CURRENT_USER_KEY);
-         return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-         console.error("Storage: Error parsing user data", e);
-         return null;
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.ACTIVE_USER));
+   },
+
+   getAllUsers() {
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.USERS), []);
+   },
+
+   updateUser(updatedData) {
+      const users = this.getAllUsers();
+      const activeUser = this.getUserData();
+
+      if (!activeUser) return null;
+
+      const idx = users.findIndex(
+         (u) => u.email.toLowerCase() === activeUser.email.toLowerCase()
+      );
+
+      if (idx !== -1) {
+         users[idx] = { ...users[idx], ...updatedData };
+         safeSetItem(STORAGE_KEYS.USERS, users);
+         safeSetItem(STORAGE_KEYS.ACTIVE_USER, users[idx]);
+         return users[idx];
       }
+
+      return null;
    },
 
-   isAuthenticated() {
-      return !!this.getUserData();
-   },
+   // =====================================================
+   //   PREFERENCES (Per-User via active user context)
+   // =====================================================
 
-   // --- PREFERENCES ---
-
-   savePreferences(partial) {
+   savePreferences(prefs) {
       const existing = this.getPreferences() || {};
-      const merged = { ...existing, ...partial };
-      localStorage.setItem(PREF_KEY, JSON.stringify(merged));
+      const merged = { ...existing, ...prefs };
+      safeSetItem(STORAGE_KEYS.PREFERENCES, merged);
+      return merged;
    },
 
    getPreferences() {
-      const raw = localStorage.getItem(PREF_KEY);
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.PREFERENCES));
    },
 
-   // --- PLAYLISTS ---
+   clearPreferences() {
+      localStorage.removeItem(STORAGE_KEYS.PREFERENCES);
+   },
+
+   // =====================================================
+   //   CURRENT PLAYLIST (Active/Playing)
+   // =====================================================
 
    savePlaylist(playlist) {
-      const existing = this.getPlaylists();
-      existing.push(playlist);
-      localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(existing));
+      let playlists = this.getPlaylists();
+      playlists = [playlist];
+      safeSetItem(STORAGE_KEYS.PLAYLISTS, playlists);
+      return playlist;
    },
 
    getPlaylists() {
-      const raw = localStorage.getItem(PLAYLISTS_KEY);
-      return raw ? JSON.parse(raw) : [];
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.PLAYLISTS), []);
    },
 
    getLatestPlaylist() {
-      const all = this.getPlaylists();
-      return all.length > 0 ? all[all.length - 1] : null;
+      const playlists = this.getPlaylists();
+      return playlists.length > 0 ? playlists[0] : null;
    },
 
-   // --- RATINGS ---
+   // =====================================================
+   //   LIKED SONGS - NOW PER USER! 
+   // =====================================================
 
-   getRatings() {
-      const raw = localStorage.getItem(RATINGS_KEY);
-      return raw ? JSON.parse(raw) : {};
+   _getLikedSongsKey() {
+      return STORAGE_KEYS.LIKED_SONGS_PREFIX + getCurrentUserKey();
    },
-
-   // --- BLACKLIST ---
-
-   getBlacklist() {
-      const raw = localStorage.getItem(BLACKLIST_KEY);
-      return raw ? JSON.parse(raw) : [];
-   },
-
-   saveBlacklist(id) {
-      const list = this.getBlacklist();
-      if (!list.includes(id)) {
-         list.push(id);
-         localStorage.setItem(BLACKLIST_KEY, JSON.stringify(list));
-      }
-   },
-
-   removeFromBlacklist(id) {
-      const list = this.getBlacklist().filter((x) => x !== id);
-      localStorage.setItem(BLACKLIST_KEY, JSON.stringify(list));
-   },
-
-   // --- LIKED SONGS ---
 
    getLikedSongs() {
+      const key = this._getLikedSongsKey();
+      return safeJsonParse(localStorage.getItem(key), []);
+   },
+
+   saveLikedSongs(songs) {
+      const key = this._getLikedSongsKey();
+      safeSetItem(key, songs);
+   },
+
+   addLikedSong(song) {
+      const songs = this.getLikedSongs();
+      if (!songs.find((s) => s.id === song.id)) {
+         songs.push(song);
+         this.saveLikedSongs(songs);
+      }
+      return songs;
+   },
+
+   removeLikedSong(songId) {
+      const songs = this.getLikedSongs().filter((s) => s.id !== songId);
+      this.saveLikedSongs(songs);
+      return songs;
+   },
+
+   clearLikedSongs() {
+      const key = this._getLikedSongsKey();
+      localStorage.removeItem(key);
+   },
+
+   // =====================================================
+   //   LIBRARY PLAYLISTS - NOW PER USER!
+   // =====================================================
+
+   _getLibraryKey() {
+      return STORAGE_KEYS.LIBRARY_PLAYLISTS_PREFIX + getCurrentUserKey();
+   },
+
+   getLibraryPlaylists() {
+      const key = this._getLibraryKey();
+      return safeJsonParse(localStorage.getItem(key), []);
+   },
+
+   setLibraryPlaylists(playlists) {
+      const key = this._getLibraryKey();
+      return safeSetItem(key, playlists);
+   },
+
+   saveToLibrary(playlist) {
       try {
-         const raw = localStorage.getItem(LIKED_SONGS_KEY);
-         if (!raw) return [];
-         const parsed = JSON.parse(raw);
-         return Array.isArray(parsed) ? parsed : [];
-      } catch {
-         return [];
+         const existing = this.getLibraryPlaylists();
+         const updated = [...existing, playlist];
+         const key = this._getLibraryKey();
+         return safeSetItem(key, updated);
+      } catch (e) {
+         console.error('Failed to save to library:', e);
+         return false;
       }
    },
 
-   saveLikedSongs(arr) {
-      if (!Array.isArray(arr)) return;
-      localStorage.setItem(LIKED_SONGS_KEY, JSON.stringify(arr));
+   removeFromLibrary(playlistId) {
+      const existing = this.getLibraryPlaylists();
+      const updated = existing.filter(p => p.id !== playlistId);
+      const key = this._getLibraryKey();
+      return safeSetItem(key, updated);
    },
 
-   toggleLike(track) {
-      const liked = this.getLikedSongs();
-      const id = track?.id;
-      if (!id) return liked;
-
-      const exists = liked.some((t) => t.id === id);
-      const next = exists
-         ? liked.filter((t) => t.id !== id)
-         : [{
-            id: track.id,
-            title: track.title,
-            artist: track.artist,
-            image: track.image,
-            url: track.url,
-            previewUrl: track.previewUrl,
-            spotifyUrl: track.spotifyUrl
-         }, ...liked];
-
-      this.saveLikedSongs(next);
-      return next;
+   updateLibraryPlaylist(playlistId, updates) {
+      const existing = this.getLibraryPlaylists();
+      const updated = existing.map(p =>
+         p.id === playlistId ? { ...p, ...updates } : p
+      );
+      const key = this._getLibraryKey();
+      return safeSetItem(key, updated);
    },
 
-   // --- ONBOARDING STATE ---
+   // =====================================================
+   //   BLACKLIST
+   // =====================================================
 
-   setCurrentStep(step) {
-      localStorage.setItem(STEP_KEY, step);
+   getBlacklist() {
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.BLACKLIST), []);
    },
 
-   getCurrentStep() {
-      return localStorage.getItem(STEP_KEY);
+   saveBlacklist(item) {
+      const list = this.getBlacklist();
+      if (!list.includes(item)) {
+         list.push(item);
+         safeSetItem(STORAGE_KEYS.BLACKLIST, list);
+      }
+      return list;
    },
 
-   clearCurrentStep() {
-      localStorage.removeItem(STEP_KEY);
+   removeFromBlacklist(item) {
+      const list = this.getBlacklist().filter((i) => i !== item);
+      safeSetItem(STORAGE_KEYS.BLACKLIST, list);
+      return list;
    },
 
-   setOnboardingInProgress(flag) {
-      localStorage.setItem(IN_PROGRESS_KEY, JSON.stringify(!!flag));
+   // =====================================================
+   //   ONBOARDING STATE
+   // =====================================================
+
+   setOnboardingInProgress(value) {
+      safeSetItem(STORAGE_KEYS.ONBOARDING_IN_PROGRESS, value);
    },
 
    getOnboardingInProgress() {
-      return JSON.parse(localStorage.getItem(IN_PROGRESS_KEY) || 'false');
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.ONBOARDING_IN_PROGRESS), false);
    },
 
-   clearOnboardingInProgress() {
-      localStorage.removeItem(IN_PROGRESS_KEY);
+   setCurrentStep(step) {
+      safeSetItem(STORAGE_KEYS.CURRENT_STEP, step);
    },
 
-   // --- DATA EXPORT/CLEAR ---
+   getCurrentStep() {
+      return safeJsonParse(localStorage.getItem(STORAGE_KEYS.CURRENT_STEP));
+   },
+
+   clearCurrentStep() {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_STEP);
+   },
+
+   // =====================================================
+   //   DATA EXPORT / IMPORT / CLEAR
+   // =====================================================
 
    exportData() {
       return {
          user: this.getUserData(),
          preferences: this.getPreferences(),
          playlists: this.getPlaylists(),
-         likedSongs: this.getLikedSongs()
+         libraryPlaylists: this.getLibraryPlaylists(),
+         likedSongs: this.getLikedSongs(),
+         blacklist: this.getBlacklist(),
+         exportedAt: new Date().toISOString()
       };
    },
 
+   importData(data) {
+      if (data.preferences) safeSetItem(STORAGE_KEYS.PREFERENCES, data.preferences);
+      if (data.playlists) safeSetItem(STORAGE_KEYS.PLAYLISTS, data.playlists);
+      if (data.libraryPlaylists) this.setLibraryPlaylists(data.libraryPlaylists);
+      if (data.likedSongs) this.saveLikedSongs(data.likedSongs);
+      if (data.blacklist) safeSetItem(STORAGE_KEYS.BLACKLIST, data.blacklist);
+   },
+
    clearAllData() {
-      localStorage.clear();
-      console.log("Storage: All data cleared.");
+      // Clear global keys
+      localStorage.removeItem(STORAGE_KEYS.USERS);
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER);
+      localStorage.removeItem(STORAGE_KEYS.PREFERENCES);
+      localStorage.removeItem(STORAGE_KEYS.PLAYLISTS);
+      localStorage.removeItem(STORAGE_KEYS.BLACKLIST);
+      localStorage.removeItem(STORAGE_KEYS.ONBOARDING_IN_PROGRESS);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_STEP);
+
+      // Clear per-user keys for current user
+      const userKey = getCurrentUserKey();
+      localStorage.removeItem(STORAGE_KEYS.LIKED_SONGS_PREFIX + userKey);
+      localStorage.removeItem(STORAGE_KEYS.LIBRARY_PLAYLISTS_PREFIX + userKey);
+   },
+
+   // =====================================================
+   //   STORAGE INFO (for debugging)
+   // =====================================================
+
+   getStorageInfo() {
+      let totalSize = 0;
+      const breakdown = {};
+
+      for (let i = 0; i < localStorage.length; i++) {
+         const key = localStorage.key(i);
+         if (key.startsWith('pplay_')) {
+            const item = localStorage.getItem(key);
+            const size = item ? new Blob([item]).size : 0;
+            breakdown[key] = {
+               sizeBytes: size,
+               sizeKB: (size / 1024).toFixed(2)
+            };
+            totalSize += size;
+         }
+      }
+
+      return {
+         totalBytes: totalSize,
+         totalKB: (totalSize / 1024).toFixed(2),
+         totalMB: (totalSize / (1024 * 1024)).toFixed(2),
+         breakdown
+      };
    }
 };
 
-if (typeof window !== 'undefined') {
-   window.StorageService = StorageService;
-}
+export default StorageService;

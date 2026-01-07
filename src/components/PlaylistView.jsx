@@ -20,7 +20,11 @@ import {
    Heart,
    ExternalLink,
    Info,
-   Sparkles
+   Sparkles,
+   Save,
+   Library,
+   Check,
+   HelpCircle
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import EmptyState from './EmptyState';
@@ -30,10 +34,10 @@ import {
    getPopularTracksForCountry,
    searchTracksByGenreAndYear,
    getArtistTopTracks,
-   generateMoreFromLiked  // From teammate
+   generateMoreFromLiked
 } from '../services/spotifyService';
 
-const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
+const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showToast }) => {
    console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
 
    // --- DATA STATE ---
@@ -46,7 +50,15 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
    const [suggestedArtists, setSuggestedArtists] = useState([]);
    const [isLoading, setIsLoading] = useState(true);
    const [hoveredTrack, setHoveredTrack] = useState(null);
-   const [isGeneratingMore, setIsGeneratingMore] = useState(false); // From teammate
+   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
+
+   // --- SAVE TO LIBRARY MODAL STATE ---
+   const [showSaveModal, setShowSaveModal] = useState(false);
+   const [playlistName, setPlaylistName] = useState('');
+   const [isSaving, setIsSaving] = useState(false);
+
+   // --- HELP TOOLTIP STATE ---
+   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
 
    // --- AUDIO PLAYER STATE ---
    const [currentTrack, setCurrentTrack] = useState(null);
@@ -110,19 +122,68 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       setIsLoading(false);
    }, [playlist]);
 
-   // --- BUILD TRACK TOOLTIP (Your feature) ---
+   // --- SAVE TO LIBRARY ---
+   const handleOpenSaveModal = () => {
+      if (!suggestedTracks || suggestedTracks.length === 0) {
+         if (showToast) showToast('No tracks to save. Generate a playlist first.', 'error');
+         return;
+      }
+
+      const existingPlaylists = StorageService.getLibraryPlaylists();
+      const defaultName = `My Playlist ${existingPlaylists.length + 1}`;
+      setPlaylistName(defaultName);
+      setShowSaveModal(true);
+   };
+
+   const handleSaveToLibrary = () => {
+      if (!suggestedTracks || suggestedTracks.length === 0) return;
+
+      setIsSaving(true);
+
+      try {
+         const trimmedName = playlistName.trim();
+         const existingPlaylists = StorageService.getLibraryPlaylists();
+         const finalName = trimmedName || `My Playlist ${existingPlaylists.length + 1}`;
+
+         const playlistToSave = {
+            id: Date.now(),
+            name: finalName,
+            type: playlist?.type || 'custom',
+            tracks: suggestedTracks,
+            trackCount: suggestedTracks.length,
+            date: new Date().toISOString(),
+            preferences: preferences || null
+         };
+
+         const success = StorageService.saveToLibrary(playlistToSave);
+
+         if (success) {
+            if (showToast) showToast(`"${finalName}" saved to library!`, 'success');
+            setShowSaveModal(false);
+            setPlaylistName('');
+         } else {
+            if (showToast) showToast('Storage is full. Please delete some playlists.', 'error');
+         }
+      } catch (error) {
+         console.error('Save to library error:', error);
+         if (showToast) showToast('Failed to save playlist. Please try again.', 'error');
+      } finally {
+         setIsSaving(false);
+      }
+   };
+
+   // --- BUILD TRACK TOOLTIP ---
    const getTrackTooltip = (track) => {
       if (!preferences || playlist?.type === 'default') {
          return 'This track is popular in your country';
       }
 
-      if (playlist?.type === 'liked_based') {
+      if (playlist?.type === 'liked_based' || playlist?.type === 'liked_songs') {
          return '💜 Generated based on songs you liked';
       }
 
       const reasons = [];
 
-      // Genre matching
       if (preferences.genres && preferences.genres.length > 0) {
          const selectedGenresList = preferences.genres.map(id => genreNames[id]).filter(Boolean);
          if (selectedGenresList.length > 0) {
@@ -130,7 +191,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          }
       }
 
-      // Language/Market matching
       if (preferences.languages && preferences.languages.length > 0) {
          const selectedLangsList = preferences.languages.map(id => languageNames[id]).filter(Boolean);
          if (selectedLangsList.length > 0) {
@@ -138,7 +198,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          }
       }
 
-      // Year range matching
       if (preferences.years) {
          const { from, to } = preferences.years;
          if (track.releaseYear && track.releaseYear >= from && track.releaseYear <= to) {
@@ -148,7 +207,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          }
       }
 
-      // Artist matching
       if (preferences.artists && preferences.artists.length > 0) {
          const artistNames = preferences.artists.map(a => a.name);
          const matchedArtist = artistNames.find(name =>
@@ -236,6 +294,17 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       };
    }, []);
 
+   // --- CLEANUP: Stop audio when leaving PlaylistView (e.g., switching to Library) ---
+   useEffect(() => {
+      return () => {
+         // This runs when component unmounts
+         if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+         }
+      };
+   }, []);
+
    useEffect(() => {
       if (audioRef.current) {
          audioRef.current.volume = volume / 100;
@@ -313,7 +382,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       setIsPlaying(true);
    };
 
-   // --- HANDLERS: Playlist Refresh (Your improved version) ---
+   // --- HANDLERS: Playlist Refresh (uses PREFERENCES) ---
    const handleRefreshPlaylist = async () => {
       try {
          setIsLoading(true);
@@ -321,30 +390,20 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
 
          let tracks = [];
          const countryCode = userData?.country || 'US';
-
-         // Get existing track IDs to exclude them
          const existingTrackIds = new Set(suggestedTracks.map(t => t.id));
 
          if (playlist.type === 'default') {
-            // Get new popular tracks
             const allTracks = await getPopularTracksForCountry(countryCode, 100);
-            // Filter out existing tracks and shuffle
             tracks = allTracks
                .filter(t => !existingTrackIds.has(t.id))
                .sort(() => Math.random() - 0.5)
                .slice(0, 50);
          } else {
-            // Custom playlist - use saved preferences
-            const genreIds = preferences?.genres || [1]; // Default to pop
+            const genreIds = preferences?.genres || [1];
             const languageIds = preferences?.languages || [];
             const yearRange = preferences?.years || { from: 2010, to: 2025 };
             const artistIds = (preferences?.artists || []).map(a => a.id).filter(Boolean);
 
-            console.log('🎵 Fetching new recommendations with:', {
-               genreIds, languageIds, yearRange, artistIds
-            });
-
-            // Get recommendations with different offset/seed for variety
             const recommendedTracks = await getSpotifyRecommendations({
                genreIds,
                artistIds,
@@ -354,7 +413,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                userCountry: countryCode
             });
 
-            // Also get tracks via search for more variety
             const searchTracksResult = await searchTracksByGenreAndYear(
                genreIds,
                yearRange,
@@ -362,7 +420,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                50
             );
 
-            // Combine and filter out existing tracks
             const allNewTracks = [...recommendedTracks, ...searchTracksResult];
             const uniqueNewTracks = Array.from(
                new Map(allNewTracks.map(t => [t.id, t])).values()
@@ -373,9 +430,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                .sort(() => Math.random() - 0.5)
                .slice(0, 50);
 
-            // If still not enough unique tracks, include some from recommendations
             if (tracks.length < 20) {
-               console.log('⚠️ Not enough unique tracks, including some overlaps');
                tracks = uniqueNewTracks
                   .sort(() => Math.random() - 0.5)
                   .slice(0, 50);
@@ -383,14 +438,11 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          }
 
          if (tracks.length === 0) {
-            alert('Could not find new tracks. Try changing your preferences.');
+            if (showToast) showToast('Could not find new tracks. Try changing your preferences.', 'error');
             setIsLoading(false);
             return;
          }
 
-         console.log(`✅ Found ${tracks.length} new tracks`);
-
-         // Create new playlist with the new tracks
          const newPlaylist = {
             ...playlist,
             tracks,
@@ -398,31 +450,31 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
             refreshedAt: new Date().toISOString()
          };
 
-         // Save and update state
          StorageService.savePlaylist(newPlaylist);
          setPlaylist(newPlaylist);
          setSuggestedTracks(tracks);
 
-         // Reset player
          if (tracks.length > 0) {
             setCurrentTrack(tracks[0]);
             setIsPlaying(false);
             setProgress(0);
          }
 
+         if (showToast) showToast(`Found ${tracks.length} new tracks based on your preferences!`, 'success');
+
       } catch (e) {
          console.error('❌ Error refreshing playlist:', e);
-         alert('Failed to refresh playlist. Please check your internet connection.');
+         if (showToast) showToast('Failed to refresh playlist.', 'error');
       } finally {
          setIsLoading(false);
       }
    };
 
-   // --- HANDLERS: Generate More Songs (From teammate) ---
+   // --- HANDLERS: Generate More Songs (uses LIKED SONGS) ---
    const handleGenerateMoreSongs = async () => {
       try {
          if (!likedSongs || likedSongs.length === 0) {
-            alert('Like some songs first to generate personalized recommendations!');
+            if (showToast) showToast('Like some songs first by tapping the ❤️!', 'info');
             return;
          }
 
@@ -430,7 +482,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          setIsLoading(true);
 
          const countryCode = userData?.country || 'IL';
-
          const alreadyShownIds = new Set(
             (playlist?.tracks || []).map((t) => t?.id).filter(Boolean)
          );
@@ -441,7 +492,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          let rounds = 0;
          while (collected.length < 50 && rounds < 4) {
             const needed = 50 - collected.length;
-
             const batch = await generateMoreFromLiked(
                likedSongs,
                needed,
@@ -463,10 +513,8 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
 
          let finalTracks = collected.slice(0, 50);
 
-         // AUTO-FILL: if not enough songs, fill the rest from Popular
          if (finalTracks.length < 50) {
             const fallback = await getPopularTracksForCountry(countryCode, 80);
-
             for (const t of fallback || []) {
                if (!t?.id) continue;
                if (collectedIds.has(t.id)) continue;
@@ -474,13 +522,11 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                collectedIds.add(t.id);
                if (finalTracks.length >= 50) break;
             }
-
             finalTracks = finalTracks.slice(0, 50);
          }
 
-         // Never overwrite with empty playlist
          if (finalTracks.length === 0) {
-            alert("Couldn't generate songs right now. Please try again.");
+            if (showToast) showToast("Couldn't generate songs. Try again.", 'error');
             return;
          }
 
@@ -500,13 +546,15 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
             setIsPlaying(false);
             setProgress(0);
          }
+
+         if (showToast) showToast(`Generated ${finalTracks.length} songs based on your ${likedSongs.length} liked songs!`, 'success');
+
       } catch (e) {
          console.error(e);
-         alert('Failed to generate more songs');
+         if (showToast) showToast('Failed to generate songs.', 'error');
       } finally {
          setIsGeneratingMore(false);
          setIsLoading(false);
-         setBlacklist(StorageService.getBlacklist());
       }
    };
 
@@ -517,7 +565,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       setPlaylist(updatedPlaylist);
       setSuggestedTracks(filtered);
 
-      // If removed track was playing, switch to next
       if (currentTrack?.id === trackId && filtered.length > 0) {
          setCurrentTrack(filtered[0]);
       }
@@ -565,46 +612,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       window.open(url, '_blank', 'noopener,noreferrer');
    };
 
-   const getSavedPlaylists = () => {
-      try {
-         const stored = JSON.parse(localStorage.getItem('my_playlists'));
-         return Array.isArray(stored) ? stored : [];
-      } catch (e) {
-         console.warn('Failed to parse saved playlists, resetting key.', e);
-         return [];
-      }
-   };
-
-   const handleSaveToLibrary = () => {
-      if (!suggestedTracks || suggestedTracks.length === 0) {
-         alert('No tracks available to save. Generate a playlist first.');
-         return;
-      }
-
-      const existing = getSavedPlaylists();
-      const rawName = window.prompt('Name your playlist');
-
-      if (rawName === null) {
-         const proceed = window.confirm('Save this playlist with a default name?');
-         if (!proceed) return;
-      }
-
-      const trimmed = (rawName || '').trim();
-      const finalName = trimmed || `Playlist ${existing.length + 1}`;
-
-      const playlistToSave = {
-         id: Date.now(),
-         name: finalName,
-         tracks: suggestedTracks,
-         date: new Date().toISOString()
-      };
-
-      const updated = [...existing, playlistToSave];
-      localStorage.setItem('my_playlists', JSON.stringify(updated));
-
-      alert(`Saved "${finalName}" to your library.`);
-   };
-
    // --- RENDER HELPERS ---
    if (!playlist || !playlist?.tracks || playlist.tracks.length === 0) {
       return (
@@ -619,15 +626,72 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
 
    const selectedGenreNames = preferences?.genres?.map(id => genreNames[id] || 'Genre').filter(Boolean) || [];
 
-   // Get playlist type label
    const getPlaylistTypeLabel = () => {
       if (playlist.type === 'default') return 'Popular Hits';
       if (playlist.type === 'liked_based') return 'Based on Liked Songs 💜';
+      if (playlist.type === 'liked_songs') return '❤️ Liked Songs';
+      if (playlist.loadedFromLibrary) return `📚 ${playlist.name || 'Loaded Playlist'}`;
       return 'Custom Mix';
    };
 
    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4 py-8 pt-20">
+
+         {/* SAVE TO LIBRARY MODAL */}
+         {showSaveModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+               <div className="bg-gradient-to-br from-gray-900 to-purple-900 rounded-2xl p-6 w-full max-w-md border border-white/20 shadow-2xl">
+                  <div className="flex items-center gap-3 mb-6">
+                     <div className="p-3 bg-pink-500/20 rounded-xl">
+                        <Library className="w-6 h-6 text-pink-400" />
+                     </div>
+                     <div>
+                        <h3 className="text-xl font-bold text-white">Save to Library</h3>
+                        <p className="text-white/60 text-sm">{suggestedTracks.length} tracks</p>
+                     </div>
+                  </div>
+
+                  <div className="mb-6">
+                     <label className="block text-white/80 text-sm font-medium mb-2">
+                        Playlist Name
+                     </label>
+                     <input
+                        type="text"
+                        value={playlistName}
+                        onChange={(e) => setPlaylistName(e.target.value)}
+                        placeholder="Enter playlist name..."
+                        className="w-full px-4 py-3 bg-black/30 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-pink-500 transition-colors"
+                        autoFocus
+                        onKeyPress={(e) => e.key === 'Enter' && handleSaveToLibrary()}
+                     />
+                  </div>
+
+                  <div className="flex gap-3">
+                     <button
+                        onClick={() => setShowSaveModal(false)}
+                        className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={handleSaveToLibrary}
+                        disabled={isSaving}
+                        className="flex-1 px-4 py-3 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                     >
+                        {isSaving ? (
+                           <Loader className="w-5 h-5 animate-spin" />
+                        ) : (
+                           <>
+                              <Check className="w-5 h-5" />
+                              Save
+                           </>
+                        )}
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
          <div className="max-w-7xl mx-auto">
             <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20 space-y-10">
 
@@ -647,12 +711,12 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            </p>
                         </div>
                      </div>
-                     <div className="flex items-center gap-3">
+                     <div className="flex gap-3">
                         <button
-                           onClick={handleSaveToLibrary}
-                           className="flex items-center gap-2 bg-green-500/20 hover:bg-green-500/30 text-green-100 px-5 py-3 rounded-lg border border-green-300/20"
+                           onClick={handleOpenSaveModal}
+                           className="flex items-center gap-3 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 px-6 py-3 rounded-lg border border-pink-500/30 transition-all"
                         >
-                           <Download className="w-5 h-5" /> Save to Library
+                           <Save className="w-5 h-5" /> Save to Library
                         </button>
                         <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
                            <RefreshCw className="w-5 h-5" /> New Playlist
@@ -704,7 +768,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                                     <ExternalLink className="w-3 h-3" /> Listen on Spotify
                                  </a>
                               )}
-
                               <button
                                  onClick={handleShareOnWhatsApp}
                                  className="mt-2 inline-flex items-center gap-2 text-xs bg-green-500/20 hover:bg-green-500/30 text-green-200 px-3 py-1.5 rounded-full transition-colors"
@@ -718,7 +781,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            >
                               <Heart className="w-6 h-6" fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'} />
                            </button>
-
                         </div>
 
                         {/* Controls */}
@@ -732,7 +794,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                               <button onClick={handleNext} className="text-white/70 hover:text-white"><SkipForward className="w-6 h-6" /></button>
                               <button onClick={toggleRepeat} className={repeatMode !== 'off' ? 'text-green-500' : 'text-white/50'}>
                                  <Repeat className="w-5 h-5" />
-                                 {repeatMode === 'one' && <span className="absolute text-[10px] font-bold top-0">1</span>}
                               </button>
                            </div>
                            <div className="w-full flex items-center gap-3">
@@ -764,34 +825,92 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                         <button onClick={handleStartPlaylist} className="flex items-center gap-2 bg-green-500/80 hover:bg-green-500 text-white px-4 py-2 rounded-full">
                            <Play className="w-5 h-5" /> Play
                         </button>
-                        <button
-                           onClick={handleRefreshPlaylist}
-                           disabled={isLoading}
-                           className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full disabled:opacity-50"
-                           title="Get new songs matching your preferences"
-                        >
-                           <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
-                           {isLoading ? 'Loading...' : 'Refresh'}
-                        </button>
 
-                        {/* Generate More Songs Button (From teammate) */}
+                        {/* REFRESH BUTTON with tooltip */}
+                        <div className="relative group">
+                           <button
+                              onClick={handleRefreshPlaylist}
+                              disabled={isLoading}
+                              className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full disabled:opacity-50"
+                           >
+                              <RefreshCw className={`w-5 h-5 ${isLoading && !isGeneratingMore ? 'animate-spin' : ''}`} />
+                              Refresh
+                           </button>
+                           {/* Tooltip */}
+                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-gray-900/95 border border-white/20 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                              <p className="text-white text-sm font-medium mb-1">🎵 Refresh</p>
+                              <p className="text-white/70 text-xs">Get new songs based on your <span className="text-purple-300">original preferences</span> (genres, languages, years, artists)</p>
+                              <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent border-t-gray-900/95"></div>
+                           </div>
+                        </div>
+
+                        {/* GENERATE MORE BUTTON with tooltip */}
+                        <div className="relative group">
+                           <button
+                              onClick={handleGenerateMoreSongs}
+                              disabled={isLoading || isGeneratingMore || !likedSongs || likedSongs.length === 0}
+                              className="flex items-center gap-2 bg-purple-500/40 hover:bg-purple-500/60 text-white px-4 py-2 rounded-full disabled:opacity-50 transition-all"
+                           >
+                              <Sparkles className={`w-5 h-5 ${isGeneratingMore ? 'animate-pulse' : ''}`} />
+                              {isGeneratingMore ? 'Generating...' : 'Generate More'}
+                           </button>
+                           {/* Tooltip */}
+                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-gray-900/95 border border-white/20 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                              <p className="text-white text-sm font-medium mb-1">✨ Generate More</p>
+                              <p className="text-white/70 text-xs">
+                                 Get new songs based on <span className="text-pink-300">songs you liked</span> (❤️).
+                                 {likedSongs?.length > 0
+                                    ? ` You have ${likedSongs.length} liked songs.`
+                                    : ' Like some songs first!'}
+                              </p>
+                              <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent border-t-gray-900/95"></div>
+                           </div>
+                        </div>
+
+                        {/* Help button */}
                         <button
-                           onClick={handleGenerateMoreSongs}
-                           disabled={isLoading || isGeneratingMore || !likedSongs || likedSongs.length === 0}
-                           className="flex items-center gap-2 bg-purple-500/40 hover:bg-purple-500/60 text-white px-4 py-2 rounded-full disabled:opacity-50 transition-all"
-                           title={likedSongs?.length ? `Generate based on ${likedSongs.length} liked songs` : 'Like some songs first'}
+                           onClick={() => setShowHelpTooltip(!showHelpTooltip)}
+                           className="p-2 text-white/50 hover:text-white/80 transition-colors"
+                           title="What's the difference?"
                         >
-                           <Sparkles className={`w-5 h-5 ${isGeneratingMore ? 'animate-pulse' : ''}`} />
-                           {isGeneratingMore ? 'Generating...' : 'Generate More'}
+                           <HelpCircle className="w-5 h-5" />
                         </button>
                      </div>
                   </div>
 
-                  {/* Liked songs indicator */}
+                  {/* Help explanation */}
+                  {showHelpTooltip && (
+                     <div className="mb-6 bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                        <div className="flex items-start gap-3">
+                           <Info className="w-5 h-5 text-purple-400 mt-0.5" />
+                           <div>
+                              <p className="text-white font-medium mb-2">What's the difference?</p>
+                              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                                 <div className="bg-white/5 rounded-lg p-3">
+                                    <p className="text-white font-medium flex items-center gap-2 mb-1">
+                                       <RefreshCw className="w-4 h-4" /> Refresh
+                                    </p>
+                                    <p className="text-white/60">Gets new songs based on your <span className="text-purple-300">original preferences</span> (genres, languages, years, artists you selected)</p>
+                                 </div>
+                                 <div className="bg-white/5 rounded-lg p-3">
+                                    <p className="text-white font-medium flex items-center gap-2 mb-1">
+                                       <Sparkles className="w-4 h-4" /> Generate More
+                                    </p>
+                                    <p className="text-white/60">Gets new songs based on <span className="text-pink-300">songs you liked</span> - analyzes your taste and finds similar tracks</p>
+                                 </div>
+                              </div>
+                           </div>
+                           <button onClick={() => setShowHelpTooltip(false)} className="text-white/50 hover:text-white">
+                              <X className="w-5 h-5" />
+                           </button>
+                        </div>
+                     </div>
+                  )}
+
                   {likedSongs && likedSongs.length > 0 && (
                      <div className="mb-4 flex items-center gap-2 text-pink-300 text-sm">
                         <Heart className="w-4 h-4" fill="currentColor" />
-                        <span>{likedSongs.length} liked songs - click "Generate More" to get personalized recommendations!</span>
+                        <span>{likedSongs.length} liked songs - click "Generate More" for personalized recommendations!</span>
                      </div>
                   )}
 
@@ -803,7 +922,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            onMouseEnter={() => setHoveredTrack(track.id)}
                            onMouseLeave={() => setHoveredTrack(null)}
                         >
-                           {/* Track Number */}
                            <span className="text-white/30 w-8 text-center font-mono">{index + 1}</span>
 
                            <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
@@ -817,7 +935,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                               </div>
                            </div>
 
-                           {/* Tooltip on hover (Your feature) */}
                            {hoveredTrack === track.id && (
                               <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
                                  <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
@@ -828,7 +945,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                                     <p className="text-white/80 text-sm whitespace-pre-line">
                                        {getTrackTooltip(track)}
                                     </p>
-                                    {/* Arrow */}
                                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
                                  </div>
                               </div>
@@ -851,14 +967,13 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                   </div>
                </div>
 
-               {/* PREFERENCES INFO (Your feature) */}
+               {/* PREFERENCES INFO */}
                {playlist.type === 'custom' && preferences && (
                   <div className="bg-black/20 rounded-xl p-8">
                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
                         <Info className="w-6 h-6 text-purple-400" /> Your Preferences
                      </h3>
                      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {/* Genres */}
                         {preferences.genres && preferences.genres.length > 0 && (
                            <div className="bg-white/5 rounded-lg p-4">
                               <p className="text-white/60 text-sm mb-2">🎵 Genres</p>
@@ -872,7 +987,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            </div>
                         )}
 
-                        {/* Languages */}
                         {preferences.languages && preferences.languages.length > 0 && (
                            <div className="bg-white/5 rounded-lg p-4">
                               <p className="text-white/60 text-sm mb-2">🌍 Languages</p>
@@ -886,7 +1000,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            </div>
                         )}
 
-                        {/* Years */}
                         {preferences.years && (
                            <div className="bg-white/5 rounded-lg p-4">
                               <p className="text-white/60 text-sm mb-2">📅 Year Range</p>
@@ -896,7 +1009,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            </div>
                         )}
 
-                        {/* Artists */}
                         {preferences.artists && preferences.artists.length > 0 && (
                            <div className="bg-white/5 rounded-lg p-4">
                               <p className="text-white/60 text-sm mb-2">🎤 Artists</p>

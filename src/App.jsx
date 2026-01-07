@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { CheckCircle, Music, Heart, Info, LogOut } from 'lucide-react';
+import { CheckCircle, Music, Heart, Info, LogOut, Library } from 'lucide-react';
 import LandingScreen from './components/LandingScreen';
 import LoginScreen from './components/LoginScreen';
 import RegistrationScreen from './components/onboarding/RegistrationScreen';
@@ -33,18 +33,24 @@ function App() {
    const [selectedArtists, setSelectedArtists] = useState([]);
    const [activeView, setActiveView] = useState('generator');
 
-   const [likedSongs, setLikedSongs] = useState(() => {
-      try {
-         return StorageService.getLikedSongs() || [];
-      } catch (e) {
-         return [];
-      }
-   });
+   // Liked songs - loaded fresh when user changes
+   const [likedSongs, setLikedSongs] = useState([]);
 
    const [isLoading, setIsLoading] = useState(false);
    const [isComplete, setIsComplete] = useState(false);
    const [playlistType, setPlaylistType] = useState(null);
    const [toast, setToast] = useState(null);
+
+   // Load liked songs for current user
+   const loadLikedSongsForUser = () => {
+      try {
+         const songs = StorageService.getLikedSongs();
+         setLikedSongs(songs || []);
+      } catch (e) {
+         console.error('Failed to load liked songs:', e);
+         setLikedSongs([]);
+      }
+   };
 
    const goToStep = (step) => {
       const inProgress = onboardingSteps.includes(step);
@@ -62,6 +68,9 @@ function App() {
 
       if (activeUser) {
          setUserData(activeUser);
+
+         // Load liked songs for THIS user
+         loadLikedSongsForUser();
 
          const savedStep = StorageService.getCurrentStep();
          const inProgress = StorageService.getOnboardingInProgress();
@@ -85,9 +94,11 @@ function App() {
          }
       } else {
          setCurrentStep('landing');
+         setLikedSongs([]); // Clear liked songs when no user
       }
    }, []);
 
+   // Reset activeView when leaving playlist screen
    useEffect(() => {
       if (currentStep !== 'playlist') {
          setActiveView('generator');
@@ -105,13 +116,17 @@ function App() {
       if (confirm('Are you sure you want to log out?')) {
          StorageService.logoutUser();
          setUserData(null);
-         setLikedSongs([]);
+         setLikedSongs([]); // Clear liked songs on logout
          setCurrentStep('landing');
       }
    };
 
    const handleLoginSuccess = (user) => {
       setUserData(user);
+
+      // Load liked songs for THIS user after login
+      loadLikedSongsForUser();
+
       const playlists = StorageService.getPlaylists();
       if (playlists && playlists.length > 0) {
          setCurrentStep('playlist');
@@ -126,6 +141,7 @@ function App() {
       try {
          StorageService.registerUser(data);
          setUserData(data);
+         setLikedSongs([]); // New user starts with no liked songs
          goToStep('welcome');
       } catch (e) {
          alert(e.message);
@@ -200,149 +216,142 @@ function App() {
    };
 
    const toggleLikedSong = (track) => {
-      if (!track) return;
-      StorageService.toggleLike(track);
-      const next = StorageService.getLikedSongs() || [];
-      setLikedSongs(next);
+      if (!track?.id) return;
 
-      const isNowLiked = next.some(t => t.id === track.id);
-      if (isNowLiked) {
-         showToast(`Added "${track.title}" to Liked Songs`, 'success');
+      const alreadyLiked = isLiked(track.id);
+      let updated;
+
+      if (alreadyLiked) {
+         updated = likedSongs.filter((t) => t?.id !== track.id);
+         showToast('Removed from liked songs', 'info');
       } else {
-         showToast(`Removed "${track.title}" from Liked Songs`, 'info');
+         updated = [...likedSongs, track];
+         showToast('Added to liked songs!', 'success');
       }
+
+      setLikedSongs(updated);
+      StorageService.saveLikedSongs(updated);
    };
 
-   // =====================================================
-   //   IMPROVED PLAYLIST GENERATION
-   // =====================================================
+   const handleViewPlaylist = () => {
+      setCurrentStep('playlist');
+      setIsComplete(false);
+   };
 
+   const handleCreateNew = () => {
+      setCurrentStep('welcome');
+      setActiveView('generator');
+   };
+
+   // --- LOAD PLAYLIST FROM LIBRARY ---
+   const handleLoadPlaylistFromLibrary = (libraryPlaylist) => {
+      if (!libraryPlaylist || !libraryPlaylist.tracks) {
+         showToast('Could not load playlist', 'error');
+         return;
+      }
+
+      // Convert library playlist format to the format PlaylistView expects
+      const playlistToLoad = {
+         id: libraryPlaylist.id,
+         name: libraryPlaylist.name,
+         type: libraryPlaylist.type || 'custom',
+         tracks: libraryPlaylist.tracks,
+         createdAt: libraryPlaylist.date || libraryPlaylist.createdAt,
+         loadedFromLibrary: true
+      };
+
+      // Save as current playlist
+      StorageService.savePlaylist(playlistToLoad);
+
+      // Switch to generator view and show playlist
+      setActiveView('generator');
+      setCurrentStep('playlist');
+
+      showToast(`Loaded "${libraryPlaylist.name}"`, 'success');
+   };
+
+   // Playlist Generation
    const startGenerationProcess = async (type) => {
       setIsLoading(true);
+      setPlaylistType(type);
 
       try {
          let tracks = [];
          const countryCode = userData?.country || 'US';
 
          if (type === 'default') {
-            // Get popular tracks for user's country
             tracks = await getPopularTracksForCountry(countryCode, 50);
          } else {
-            // Custom playlist with REAL filtering
-            console.log('🎵 Creating custom playlist with preferences:', {
-               genres: selectedGenres,
-               languages: selectedLanguages,
-               years: selectedYears,
-               artists: selectedArtists
-            });
+            // Custom playlist generation
+            const genreIds = selectedGenres.length > 0 ? selectedGenres : [1];
+            const artistIds = selectedArtists.map(a => a.id).filter(Boolean);
+            const yearRange = selectedYears;
+            const languageIds = selectedLanguages;
 
-            const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
-
-            // Use the improved Spotify Recommendations API with proper filtering
+            // Get recommendations
             const recommendedTracks = await getSpotifyRecommendations({
-               genreIds: selectedGenres.length > 0 ? selectedGenres : [1], // Default to pop if no genre
-               artistIds: artistIds,
-               yearRange: selectedYears,
-               languageIds: selectedLanguages,
+               genreIds,
+               artistIds,
+               yearRange,
+               languageIds,
                limit: 40,
                userCountry: countryCode
             });
 
             tracks = [...recommendedTracks];
 
-            // If we need more tracks, use search with year filter
+            // Supplement with search if not enough tracks
             if (tracks.length < 30) {
-               const additionalTracks = await searchTracksByGenreAndYear(
-                  selectedGenres.length > 0 ? selectedGenres : [1],
-                  selectedYears,
+               const searchTracks = await searchTracksByGenreAndYear(
+                  genreIds,
+                  yearRange,
                   countryCode,
-                  30 - tracks.length
+                  30
                );
-
-               tracks = [...tracks, ...additionalTracks];
+               tracks = [...tracks, ...searchTracks];
             }
 
-            // If artists were selected, add their top tracks
+            // Add artist top tracks if artists were selected
             if (artistIds.length > 0) {
-               const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
-                  getArtistTopTracks(artistId, countryCode)
-               );
-               const artistTracksResults = await Promise.all(artistTracksPromises);
-               let artistTracks = artistTracksResults.flat();
-
-               // Filter artist tracks by year range
-               if (selectedYears?.from && selectedYears?.to) {
-                  artistTracks = artistTracks.filter(track => {
-                     if (!track.releaseYear) return true;
-                     return track.releaseYear >= selectedYears.from && track.releaseYear <= selectedYears.to;
+               for (const artistId of artistIds.slice(0, 3)) {
+                  const artistTracks = await getArtistTopTracks(artistId, countryCode);
+                  const filteredArtistTracks = artistTracks.filter(t => {
+                     if (!yearRange) return true;
+                     if (!t.releaseYear) return true;
+                     return t.releaseYear >= yearRange.from && t.releaseYear <= yearRange.to;
                   });
+                  tracks = [...tracks, ...filteredArtistTracks];
                }
-
-               tracks = [...tracks, ...artistTracks];
             }
 
             // Remove duplicates
-            const uniqueTracks = Array.from(new Map(tracks.map((t) => [t.id, t])).values());
-
-            // Final sort by popularity and limit
-            tracks = uniqueTracks
-               .sort((a, b) => b.popularity - a.popularity)
-               .slice(0, 50);
-
-            console.log(`✅ Generated playlist with ${tracks.length} tracks`);
+            const uniqueTracks = Array.from(new Map(tracks.map(t => [t.id, t])).values());
+            tracks = uniqueTracks.sort((a, b) => b.popularity - a.popularity).slice(0, 50);
          }
 
-         const playlistData = {
+         if (tracks.length === 0) {
+            throw new Error('No tracks found');
+         }
+
+         // Save playlist
+         const newPlaylist = {
+            id: Date.now(),
             type,
-            userData,
             tracks,
-            preferences: type === 'custom'
-               ? { genres: selectedGenres, languages: selectedLanguages, years: selectedYears, artists: selectedArtists }
-               : null,
             createdAt: new Date().toISOString()
          };
 
-         StorageService.savePlaylist(playlistData);
+         StorageService.savePlaylist(newPlaylist);
          StorageService.setOnboardingInProgress(false);
          StorageService.clearCurrentStep();
 
          setIsLoading(false);
          setIsComplete(true);
-         setCurrentStep('playlist');
+
       } catch (error) {
-         console.error('❌ Error generating playlist:', error);
+         console.error('Playlist generation error:', error);
          setIsLoading(false);
          alert('Failed to generate playlist. Please try again.');
-      }
-   };
-
-   const handleViewPlaylist = () => {
-      setIsComplete(false);
-      goToStep('playlist');
-   };
-
-   const handleCreateNew = () => {
-      if (confirm('Create a new playlist? This will start the process from scratch.')) {
-         const freshYears = { from: 2010, to: 2025 };
-
-         setSelectedGenres([]);
-         setSelectedLanguages([]);
-         setSelectedYears(freshYears);
-         setSelectedArtists([]);
-
-         StorageService.savePreferences({
-            genres: [],
-            languages: [],
-            years: freshYears,
-            artists: []
-         });
-
-         StorageService.setOnboardingInProgress(false);
-         StorageService.clearCurrentStep();
-
-         setIsComplete(false);
-         setPlaylistType(null);
-         goToStep('welcome');
       }
    };
 
@@ -403,6 +412,10 @@ function App() {
       );
    }
 
+   // Check if user has any saved playlists in library
+   const savedLibraryPlaylists = StorageService.getLibraryPlaylists();
+   const hasLibraryPlaylists = savedLibraryPlaylists && savedLibraryPlaylists.length > 0;
+
    return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 relative">
 
@@ -419,26 +432,34 @@ function App() {
             </div>
          )}
 
-         {userData && currentStep !== 'landing' && currentStep !== 'login' && currentStep !== 'registration' && (
+         {/* --- NAVIGATION TOGGLE (Only show on playlist screen) --- */}
+         {userData && currentStep === 'playlist' && (
             <div className="absolute top-6 right-6 z-50 flex gap-2 bg-white/10 backdrop-blur-xl border border-white/10 rounded-full p-1">
                <button
                   onClick={() => setActiveView('generator')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeView === 'generator' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${activeView === 'generator' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
                >
-                  Generator
+                  <Music className="w-4 h-4" />
+                  Player
                </button>
                <button
                   onClick={() => setActiveView('library')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeView === 'library' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${activeView === 'library' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'}`}
                >
+                  <Library className="w-4 h-4" />
                   My Library
+                  {(hasLibraryPlaylists || likedSongs.length > 0) && (
+                     <span className="bg-pink-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                        {savedLibraryPlaylists.length + (likedSongs.length > 0 ? 1 : 0)}
+                     </span>
+                  )}
                </button>
             </div>
          )}
 
          {/* Toast Notification Component */}
          {toast && (
-            <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : 'bg-gray-800 text-white'
+            <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-gray-800 text-white'
                }`}>
                {toast.type === 'success' ? (
                   <Heart className="w-6 h-6 fill-pink-500 text-pink-500" />
@@ -450,10 +471,11 @@ function App() {
          )}
 
          {/* --- SCREENS --- */}
-         {activeView === 'library' ? (
+         {activeView === 'library' && currentStep === 'playlist' ? (
             <PlaylistLibrary
-               onBack={() => setActiveView('generator')}
-               onLoadPlaylist={(playlist) => console.log('Load playlist', playlist)}
+               onLoadPlaylist={handleLoadPlaylistFromLibrary}
+               showToast={showToast}
+               likedSongs={likedSongs}
             />
          ) : (
             <>
@@ -532,6 +554,7 @@ function App() {
                      likedSongs={likedSongs}
                      toggleLikedSong={toggleLikedSong}
                      isLiked={isLiked}
+                     showToast={showToast}
                   />
                )}
 
