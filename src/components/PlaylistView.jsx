@@ -19,7 +19,8 @@ import {
    Volume2,
    Heart,
    ExternalLink,
-   Info
+   Info,
+   Sparkles
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import EmptyState from './EmptyState';
@@ -28,7 +29,8 @@ import {
    getSpotifyRecommendations,
    getPopularTracksForCountry,
    searchTracksByGenreAndYear,
-   getArtistTopTracks
+   getArtistTopTracks,
+   generateMoreFromLiked  // From teammate
 } from '../services/spotifyService';
 
 const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
@@ -44,6 +46,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
    const [suggestedArtists, setSuggestedArtists] = useState([]);
    const [isLoading, setIsLoading] = useState(true);
    const [hoveredTrack, setHoveredTrack] = useState(null);
+   const [isGeneratingMore, setIsGeneratingMore] = useState(false); // From teammate
 
    // --- AUDIO PLAYER STATE ---
    const [currentTrack, setCurrentTrack] = useState(null);
@@ -107,10 +110,14 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       setIsLoading(false);
    }, [playlist]);
 
-   // --- BUILD TRACK TOOLTIP ---
+   // --- BUILD TRACK TOOLTIP (Your feature) ---
    const getTrackTooltip = (track) => {
       if (!preferences || playlist?.type === 'default') {
          return 'This track is popular in your country';
+      }
+
+      if (playlist?.type === 'liked_based') {
+         return '💜 Generated based on songs you liked';
       }
 
       const reasons = [];
@@ -306,7 +313,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
       setIsPlaying(true);
    };
 
-   // --- HANDLERS: Playlist Refresh (FIXED!) ---
+   // --- HANDLERS: Playlist Refresh (Your improved version) ---
    const handleRefreshPlaylist = async () => {
       try {
          setIsLoading(true);
@@ -348,7 +355,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
             });
 
             // Also get tracks via search for more variety
-            const searchTracks = await searchTracksByGenreAndYear(
+            const searchTracksResult = await searchTracksByGenreAndYear(
                genreIds,
                yearRange,
                countryCode,
@@ -356,7 +363,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
             );
 
             // Combine and filter out existing tracks
-            const allNewTracks = [...recommendedTracks, ...searchTracks];
+            const allNewTracks = [...recommendedTracks, ...searchTracksResult];
             const uniqueNewTracks = Array.from(
                new Map(allNewTracks.map(t => [t.id, t])).values()
             );
@@ -408,6 +415,98 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
          alert('Failed to refresh playlist. Please check your internet connection.');
       } finally {
          setIsLoading(false);
+      }
+   };
+
+   // --- HANDLERS: Generate More Songs (From teammate) ---
+   const handleGenerateMoreSongs = async () => {
+      try {
+         if (!likedSongs || likedSongs.length === 0) {
+            alert('Like some songs first to generate personalized recommendations!');
+            return;
+         }
+
+         setIsGeneratingMore(true);
+         setIsLoading(true);
+
+         const countryCode = userData?.country || 'IL';
+
+         const alreadyShownIds = new Set(
+            (playlist?.tracks || []).map((t) => t?.id).filter(Boolean)
+         );
+
+         const collected = [];
+         const collectedIds = new Set([...alreadyShownIds]);
+
+         let rounds = 0;
+         while (collected.length < 50 && rounds < 4) {
+            const needed = 50 - collected.length;
+
+            const batch = await generateMoreFromLiked(
+               likedSongs,
+               needed,
+               countryCode,
+               Array.from(collectedIds)
+            );
+
+            for (const t of batch || []) {
+               if (!t?.id) continue;
+               if (collectedIds.has(t.id)) continue;
+               collectedIds.add(t.id);
+               collected.push(t);
+               if (collected.length >= 50) break;
+            }
+
+            rounds++;
+            if (!batch || batch.length === 0) break;
+         }
+
+         let finalTracks = collected.slice(0, 50);
+
+         // AUTO-FILL: if not enough songs, fill the rest from Popular
+         if (finalTracks.length < 50) {
+            const fallback = await getPopularTracksForCountry(countryCode, 80);
+
+            for (const t of fallback || []) {
+               if (!t?.id) continue;
+               if (collectedIds.has(t.id)) continue;
+               finalTracks.push(t);
+               collectedIds.add(t.id);
+               if (finalTracks.length >= 50) break;
+            }
+
+            finalTracks = finalTracks.slice(0, 50);
+         }
+
+         // Never overwrite with empty playlist
+         if (finalTracks.length === 0) {
+            alert("Couldn't generate songs right now. Please try again.");
+            return;
+         }
+
+         const newPlaylist = {
+            ...playlist,
+            type: 'liked_based',
+            tracks: finalTracks,
+            createdAt: new Date().toISOString()
+         };
+
+         StorageService.savePlaylist(newPlaylist);
+         setPlaylist(newPlaylist);
+         setSuggestedTracks(finalTracks);
+
+         if (finalTracks[0]) {
+            setCurrentTrack(finalTracks[0]);
+            setIsPlaying(false);
+            setProgress(0);
+         }
+      } catch (e) {
+         console.error(e);
+         alert('Failed to generate more songs');
+      } finally {
+         setIsGeneratingMore(false);
+         setIsLoading(false);
+         setBlacklist(StorageService.getBlacklist());
       }
    };
 
@@ -480,6 +579,13 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
 
    const selectedGenreNames = preferences?.genres?.map(id => genreNames[id] || 'Genre').filter(Boolean) || [];
 
+   // Get playlist type label
+   const getPlaylistTypeLabel = () => {
+      if (playlist.type === 'default') return 'Popular Hits';
+      if (playlist.type === 'liked_based') return 'Based on Liked Songs 💜';
+      return 'Custom Mix';
+   };
+
    return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4 py-8">
          <div className="max-w-7xl mx-auto">
@@ -497,7 +603,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                               {userData?.firstName ? `${userData.firstName} ${userData.lastName}` : 'Your Profile'}
                            </h1>
                            <p className="text-white/60 text-xl mt-2">
-                              {playlist.type === 'default' ? 'Popular Hits' : 'Custom Mix'}
+                              {getPlaylistTypeLabel()}
                            </p>
                         </div>
                      </div>
@@ -619,8 +725,27 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                            <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
                            {isLoading ? 'Loading...' : 'Refresh'}
                         </button>
+
+                        {/* Generate More Songs Button (From teammate) */}
+                        <button
+                           onClick={handleGenerateMoreSongs}
+                           disabled={isLoading || isGeneratingMore || !likedSongs || likedSongs.length === 0}
+                           className="flex items-center gap-2 bg-purple-500/40 hover:bg-purple-500/60 text-white px-4 py-2 rounded-full disabled:opacity-50 transition-all"
+                           title={likedSongs?.length ? `Generate based on ${likedSongs.length} liked songs` : 'Like some songs first'}
+                        >
+                           <Sparkles className={`w-5 h-5 ${isGeneratingMore ? 'animate-pulse' : ''}`} />
+                           {isGeneratingMore ? 'Generating...' : 'Generate More'}
+                        </button>
                      </div>
                   </div>
+
+                  {/* Liked songs indicator */}
+                  {likedSongs && likedSongs.length > 0 && (
+                     <div className="mb-4 flex items-center gap-2 text-pink-300 text-sm">
+                        <Heart className="w-4 h-4" fill="currentColor" />
+                        <span>{likedSongs.length} liked songs - click "Generate More" to get personalized recommendations!</span>
+                     </div>
+                  )}
 
                   <div className="space-y-4">
                      {suggestedTracks.map((track, index) => (
@@ -644,7 +769,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                               </div>
                            </div>
 
-                           {/* Tooltip on hover */}
+                           {/* Tooltip on hover (Your feature) */}
                            {hoveredTrack === track.id && (
                               <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
                                  <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
@@ -678,7 +803,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => 
                   </div>
                </div>
 
-               {/* PREFERENCES INFO */}
+               {/* PREFERENCES INFO (Your feature) */}
                {playlist.type === 'custom' && preferences && (
                   <div className="bg-black/20 rounded-xl p-8">
                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">

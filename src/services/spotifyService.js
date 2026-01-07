@@ -1,4 +1,9 @@
-﻿const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+﻿// =====================================================
+//   SPOTIFY SERVICE - MERGED VERSION
+//   Contains: Your updates + Teammate's generateMoreFromLiked
+// =====================================================
+
+const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
 
 console.log('🔐 Spotify credentials:', {
@@ -133,6 +138,122 @@ const LANGUAGE_ID_TO_MARKET = {
 };
 
 // =====================================================
+//   HELPER FUNCTIONS (from teammate)
+// =====================================================
+
+const chunk = (arr, size) => {
+   const out = [];
+   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+   return out;
+};
+
+const mapSpotifyTrack = (track, market) => {
+   const release = track.album?.release_date || '';
+   const releaseYear = release ? Number(String(release).slice(0, 4)) : null;
+
+   return {
+      id: track.id,
+      title: track.name,
+      artist: track.artists?.[0]?.name || 'Unknown',
+      artistId: track.artists?.[0]?.id || '',
+      image: track.album?.images?.[0]?.url || null,
+      album: track.album?.name || '',
+      releaseDate: release,
+      releaseYear,
+      market,
+      duration: Math.floor((track.duration_ms || 0) / 1000),
+      popularity: track.popularity || 0,
+      previewUrl: track.preview_url,
+      spotifyUrl: track.external_urls?.spotify || null
+   };
+};
+
+const shuffleCopy = (arr) => {
+   const a = [...arr];
+   for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+   }
+   return a;
+};
+
+const pickRandom = (arr, n) => shuffleCopy(arr).slice(0, n);
+
+// =====================================================
+//   TRACK & ARTIST HELPERS (from teammate)
+// =====================================================
+
+const getTracksByIds = async (ids, market = 'IL') => {
+   const token = await getSpotifyToken();
+   const unique = Array.from(new Set((ids || []).filter(Boolean)));
+   if (unique.length === 0) return [];
+
+   const all = [];
+   for (const part of chunk(unique, 50)) {
+      const url = `https://api.spotify.com/v1/tracks?ids=${part.join(',')}&market=${market}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const tracks = data.tracks || [];
+      all.push(...tracks.filter(Boolean).map((t) => mapSpotifyTrack(t, market)));
+   }
+   return all.filter((t) => t?.id);
+};
+
+const artistCache = new Map();
+
+const getArtistsByIds = async (ids) => {
+   const token = await getSpotifyToken();
+   const unique = Array.from(new Set((ids || []).filter(Boolean)));
+   if (unique.length === 0) return [];
+
+   const missing = unique.filter((id) => !artistCache.has(id));
+
+   for (const part of chunk(missing, 50)) {
+      const url = `https://api.spotify.com/v1/artists?ids=${part.join(',')}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const artists = data.artists || [];
+      artists.forEach((a) => {
+         if (a?.id) artistCache.set(a.id, Array.isArray(a.genres) ? a.genres : []);
+      });
+   }
+
+   return unique.map((id) => ({ id, genres: artistCache.get(id) || [] }));
+};
+
+// =====================================================
+//   RECOMMENDATIONS ENDPOINT HELPER
+// =====================================================
+
+const getRecommendationsEndpoint = async ({
+   market = 'IL',
+   seed_tracks = [],
+   seed_artists = [],
+   seed_genres = [],
+   limit = 50
+}) => {
+   const token = await getSpotifyToken();
+   const params = new URLSearchParams({
+      limit: String(limit),
+      market
+   });
+
+   if (seed_tracks.length) params.set('seed_tracks', seed_tracks.slice(0, 5).join(','));
+   if (seed_artists.length) params.set('seed_artists', seed_artists.slice(0, 5).join(','));
+   if (seed_genres.length) params.set('seed_genres', seed_genres.slice(0, 5).join(','));
+
+   const url = `https://api.spotify.com/v1/recommendations?${params.toString()}`;
+   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+   if (!res.ok) return [];
+
+   const data = await res.json();
+   const tracks = data.tracks || [];
+   return tracks.filter(Boolean).map((t) => mapSpotifyTrack(t, market));
+};
+
+// =====================================================
 //   CORE: Get Spotify Recommendations (PROPER API)
 // =====================================================
 
@@ -183,10 +304,6 @@ export const getSpotifyRecommendations = async ({
          params.append('seed_genres', 'pop');
       }
 
-      // Add year filter using target_year parameter if available
-      // Note: Spotify doesn't have direct year filter in recommendations,
-      // but we can filter results afterwards
-
       const url = `https://api.spotify.com/v1/recommendations?${params.toString()}`;
       console.log('🎵 Fetching recommendations:', url);
 
@@ -235,7 +352,7 @@ export const getSpotifyRecommendations = async ({
 };
 
 // =====================================================
-//   FALLBACK: Search-based recommendations with proper filtering
+//   FALLBACK: Search-based recommendations
 // =====================================================
 
 const getFallbackRecommendations = async (genres, market, limit) => {
@@ -244,7 +361,6 @@ const getFallbackRecommendations = async (genres, market, limit) => {
       let allTracks = [];
 
       for (const genre of genres.slice(0, 3)) {
-         // Use genre filter in search query
          const query = `genre:${genre}`;
          const response = await fetch(
             `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${market}&limit=50`,
@@ -271,10 +387,7 @@ const getFallbackRecommendations = async (genres, market, limit) => {
          }
       }
 
-      // Remove duplicates
       const uniqueTracks = Array.from(new Map(allTracks.map(t => [t.id, t])).values());
-
-      // Sort by popularity
       return uniqueTracks
          .sort((a, b) => b.popularity - a.popularity)
          .slice(0, limit);
@@ -286,7 +399,7 @@ const getFallbackRecommendations = async (genres, market, limit) => {
 };
 
 // =====================================================
-//   Get tracks by specific playlist categories
+//   PLAYLIST TRACKS
 // =====================================================
 
 export const getPlaylistTracks = async (playlistId, market = 'US') => {
@@ -323,7 +436,7 @@ export const getPlaylistTracks = async (playlistId, market = 'US') => {
 };
 
 // =====================================================
-//   Browse Categories & Featured Playlists
+//   BROWSE CATEGORIES
 // =====================================================
 
 export const getCategoryPlaylists = async (categoryId, market = 'US', limit = 20) => {
@@ -345,7 +458,7 @@ export const getCategoryPlaylists = async (categoryId, market = 'US', limit = 20
 };
 
 // =====================================================
-//   TRACK SEARCH (with proper genre filtering)
+//   TRACK SEARCH
 // =====================================================
 
 export const searchTracks = async (query, market = 'US', limit = 50) => {
@@ -400,7 +513,7 @@ export const searchTracks = async (query, market = 'US', limit = 50) => {
 };
 
 // =====================================================
-//   Search tracks by genre with year filter
+//   SEARCH TRACKS BY GENRE AND YEAR
 // =====================================================
 
 export const searchTracksByGenreAndYear = async (genreIds, yearRange, market = 'US', limit = 50) => {
@@ -411,11 +524,9 @@ export const searchTracksByGenreAndYear = async (genreIds, yearRange, market = '
       const genres = genreIds.map(id => GENRE_ID_TO_SPOTIFY_SEED[id]).filter(Boolean);
 
       for (const genre of genres.slice(0, 3)) {
-         // Build query with genre and year filters
          let query = `genre:${genre}`;
 
          if (yearRange?.from && yearRange?.to) {
-            // Spotify search supports year ranges
             query += ` year:${yearRange.from}-${yearRange.to}`;
          }
 
@@ -446,7 +557,6 @@ export const searchTracksByGenreAndYear = async (genreIds, yearRange, market = '
          }
       }
 
-      // Remove duplicates and sort
       const uniqueTracks = Array.from(new Map(allTracks.map(t => [t.id, t])).values());
       return uniqueTracks
          .sort((a, b) => b.popularity - a.popularity)
@@ -553,7 +663,7 @@ export const getArtistTopTracks = async (artistId, countryCode = 'US') => {
 };
 
 // =====================================================
-//   MAIN RECOMMENDATIONS FUNCTION (Used by App.jsx)
+//   MAIN RECOMMENDATIONS (backward compatible)
 // =====================================================
 
 export const getRecommendations = async (
@@ -567,7 +677,6 @@ export const getRecommendations = async (
    try {
       console.log('🎵 Getting recommendations:', { genreNames, seedArtistIds, yearRange });
 
-      // Convert genre names back to IDs for the new function
       const genreNameToId = {
          'pop': 1, 'rock': 2, 'hip-hop': 3, 'rap': 4, 'electronic': 5,
          'jazz': 6, 'classical': 7, 'r-n-b': 8, 'country': 9, 'latin': 10,
@@ -578,7 +687,6 @@ export const getRecommendations = async (
 
       const genreIds = genreNames.map(name => genreNameToId[name.toLowerCase()]).filter(Boolean);
 
-      // Use the new comprehensive recommendation function
       const tracks = await getSpotifyRecommendations({
          genreIds,
          artistIds: seedArtistIds,
@@ -588,10 +696,9 @@ export const getRecommendations = async (
          userCountry: countryCode
       });
 
-      // If we got few results, supplement with search-based results
       if (tracks.length < limit / 2) {
          const additionalTracks = await searchTracksByGenreAndYear(
-            genreIds.length > 0 ? genreIds : [1], // default to pop
+            genreIds.length > 0 ? genreIds : [1],
             yearRange,
             countryCode,
             limit - tracks.length
@@ -610,7 +717,188 @@ export const getRecommendations = async (
 };
 
 // =====================================================
-//   ARTISTS SEARCH (for ArtistSelection screen)
+//   GENERATE MORE FROM LIKED (from teammate)
+// =====================================================
+
+export const generateMoreFromLiked = async (
+   likedSongs,
+   limit = 50,
+   market = 'IL',
+   excludeTrackIds = []
+) => {
+   try {
+      const likedIds = (likedSongs || []).map((t) => t?.id).filter(Boolean);
+      if (likedIds.length === 0) return [];
+
+      const likedFull = await getTracksByIds(likedIds, market);
+
+      const excludeSet = new Set([
+         ...likedFull.map((t) => t?.id).filter(Boolean),
+         ...(excludeTrackIds || []).filter(Boolean)
+      ]);
+
+      const likedArtistIds = likedFull.map((t) => t.artistId).filter(Boolean);
+
+      const years = likedFull.map((t) => t.releaseYear).filter((y) => Number.isFinite(y));
+      const baseMin = years.length ? Math.min(...years) : null;
+      const baseMax = years.length ? Math.max(...years) : null;
+
+      const artistFreq = new Map();
+      likedArtistIds.forEach((id) => artistFreq.set(id, (artistFreq.get(id) || 0) + 1));
+
+      const topArtistsAll = Array.from(artistFreq.entries())
+         .sort((a, b) => b[1] - a[1])
+         .map(([id]) => id);
+
+      const topArtists = topArtistsAll.slice(0, 10);
+
+      await getArtistsByIds(topArtists.length ? topArtists : likedArtistIds);
+
+      const genreFreq = new Map();
+      const seedArtistsForGenres = topArtists.length ? topArtists : likedArtistIds;
+
+      const likedArtists = await getArtistsByIds(seedArtistsForGenres);
+      likedArtists.forEach((a) => {
+         (a.genres || []).forEach((g) => genreFreq.set(g, (genreFreq.get(g) || 0) + 1));
+      });
+
+      const topGenresAll = Array.from(genreFreq.entries())
+         .sort((a, b) => b[1] - a[1])
+         .map(([g]) => g);
+
+      const topGenres = topGenresAll.slice(0, 15);
+
+      const likedArtistSet = new Set(likedArtistIds);
+
+      const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+      const safePick = (arr, n) => shuffle(arr).slice(0, Math.min(n, arr.length));
+
+      const seedsFromLiked = () => safePick(likedFull, 5).map((t) => t.id);
+
+      const fetchMoreCandidates = async (attempts) => {
+         const out = [];
+         for (let i = 0; i < attempts; i++) {
+            const seed_tracks = seedsFromLiked();
+            const seed_artists = safePick(topArtists, 3);
+            const seed_genres = safePick(topGenres, 3);
+
+            out.push(
+               ...(await getRecommendationsEndpoint({
+                  market,
+                  seed_tracks,
+                  seed_artists,
+                  seed_genres,
+                  limit: 50
+               }))
+            );
+         }
+
+         const genreSearches = safePick(topGenres, 4);
+         for (const g of genreSearches) {
+            const extra = await searchTracks(g, market, 50);
+            out.push(...extra);
+         }
+
+         return out;
+      };
+
+      let candidates = [];
+      candidates.push(...(await fetchMoreCandidates(8)));
+
+      const unique = () =>
+         Array.from(new Map(candidates.map((t) => [t?.id, t])).values()).filter(
+            (t) => t?.id && !excludeSet.has(t.id)
+         );
+
+      let uniq = unique();
+
+      const candArtistIds = Array.from(new Set(uniq.map((t) => t.artistId).filter(Boolean)));
+      await getArtistsByIds(candArtistIds);
+
+      const tryBuildFinal = (yearPad) => {
+         const yearMin = baseMin !== null ? baseMin - yearPad : null;
+         const yearMax = baseMax !== null ? baseMax + yearPad : null;
+
+         const topGenresSet = new Set(topGenres);
+
+         const score2of4 = (t) => {
+            const artistMatch = t.artistId && likedArtistSet.has(t.artistId);
+
+            const yearMatch =
+               Number.isFinite(t.releaseYear) &&
+               yearMin !== null &&
+               yearMax !== null &&
+               t.releaseYear >= yearMin &&
+               t.releaseYear <= yearMax;
+
+            const candGenres = artistCache.get(t.artistId) || [];
+            const genreMatch = candGenres.some((g) => topGenresSet.has(g));
+
+            const languageMatch = t.market === market;
+
+            return (
+               (artistMatch ? 1 : 0) +
+               (yearMatch ? 1 : 0) +
+               (genreMatch ? 1 : 0) +
+               (languageMatch ? 1 : 0)
+            );
+         };
+
+         const filtered = uniq.filter((t) => score2of4(t) >= 2);
+
+         const ranked = filtered
+            .map((t) => ({
+               ...t,
+               _score:
+                  score2of4(t) * 10 +
+                  (t.popularity || 0) +
+                  (t.artistId && likedArtistSet.has(t.artistId) ? 5 : 0)
+            }))
+            .sort((a, b) => b._score - a._score);
+
+         const perArtist = new Map();
+         const final = [];
+         for (const t of ranked) {
+            const k = t.artistId || 'unknown';
+            const c = perArtist.get(k) || 0;
+            if (c >= 2) continue;
+            perArtist.set(k, c + 1);
+            final.push(t);
+            if (final.length >= limit) break;
+         }
+         return final;
+      };
+
+      let final = tryBuildFinal(4);
+
+      let pad = 4;
+      let rounds = 0;
+
+      while (final.length < limit && rounds < 4) {
+         pad += 2;
+
+         if (final.length < limit) {
+            candidates.push(...(await fetchMoreCandidates(4)));
+            uniq = unique();
+
+            const candArtistIds2 = Array.from(new Set(uniq.map((t) => t.artistId).filter(Boolean)));
+            await getArtistsByIds(candArtistIds2);
+         }
+
+         final = tryBuildFinal(pad);
+         rounds++;
+      }
+
+      return final.slice(0, limit);
+   } catch (e) {
+      console.error('❌ generateMoreFromLiked error:', e);
+      return [];
+   }
+};
+
+// =====================================================
+//   ARTIST SEARCH FUNCTIONS
 // =====================================================
 
 const getLocalGenreTag = (genre, countryAdjective) => {
@@ -783,7 +1071,7 @@ export const searchArtistsByGenreWithYear = async (
 };
 
 // =====================================================
-//   getArtistsForGenres (for ArtistSelection.jsx)
+//   GET ARTISTS FOR GENRES (ArtistSelection.jsx)
 // =====================================================
 
 export const getArtistsForGenres = async (genreIds, languageIds, yearRange, additionalOffset = 0) => {
