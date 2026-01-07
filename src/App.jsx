@@ -1,5 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { CheckCircle, Music, Heart, Info } from 'lucide-react';
+import { CheckCircle, Music, Heart, Info, LogOut } from 'lucide-react';
+import LandingScreen from './components/LandingScreen';
+import LoginScreen from './components/LoginScreen';
 import RegistrationScreen from './components/onboarding/RegistrationScreen';
 import WelcomeScreen from './components/onboarding/WelcomeScreen';
 import GenreSelection from './components/onboarding/GenreSelection';
@@ -10,23 +12,25 @@ import PlaylistView from './components/PlaylistView';
 import { StorageService } from './utils/storage';
 import Sprint1Complete from './components/Sprint1Complete';
 
-// --- IMPORTS FOR MERGE COMPATIBILITY ---
-// We keep Alexander's DB service imported so the file remains in the project
-import { MusicDbService } from './services/musicDbService';
-// We use Spotify Service for the actual functionality (Pictures/Links)
-import { getRecommendations, getArtistTopTracks, getPopularTracksForCountry } from './services/spotifyService';
+// Import Spotify service functions
+import {
+   getSpotifyRecommendations,
+   getArtistTopTracks,
+   getPopularTracksForCountry,
+   searchTracksByGenreAndYear
+} from './services/spotifyService';
 
 function App() {
    const onboardingSteps = ['genres', 'languages', 'years', 'artists'];
 
-   const [currentStep, setCurrentStep] = useState('registration');
+   // States: 'landing', 'login', 'registration', 'welcome', etc.
+   const [currentStep, setCurrentStep] = useState('landing');
    const [userData, setUserData] = useState(null);
    const [selectedGenres, setSelectedGenres] = useState([]);
    const [selectedLanguages, setSelectedLanguages] = useState([]);
    const [selectedYears, setSelectedYears] = useState({ from: 2010, to: 2025 });
    const [selectedArtists, setSelectedArtists] = useState([]);
 
-   // Safe initialization for Liked Songs
    const [likedSongs, setLikedSongs] = useState(() => {
       try {
          return StorageService.getLikedSongs() || [];
@@ -38,8 +42,6 @@ function App() {
    const [isLoading, setIsLoading] = useState(false);
    const [isComplete, setIsComplete] = useState(false);
    const [playlistType, setPlaylistType] = useState(null);
-
-   // Toast State
    const [toast, setToast] = useState(null);
 
    const goToStep = (step) => {
@@ -52,52 +54,74 @@ function App() {
       setCurrentStep(step);
    };
 
+   // --- INITIAL AUTH CHECK ---
    useEffect(() => {
-      const savedUserData = StorageService.getUserData();
-      const savedPreferences = StorageService.getPreferences();
+      const activeUser = StorageService.getUserData();
 
-      if (savedUserData) setUserData(savedUserData);
+      if (activeUser) {
+         setUserData(activeUser);
 
-      if (savedPreferences) {
-         setSelectedGenres(savedPreferences.genres || []);
-         setSelectedLanguages(savedPreferences.languages || []);
-         setSelectedYears(savedPreferences.years || { from: 2010, to: 2025 });
-         setSelectedArtists(savedPreferences.artists || []);
+         const savedStep = StorageService.getCurrentStep();
+         const inProgress = StorageService.getOnboardingInProgress();
+         const savedPlaylists = StorageService.getPlaylists();
+
+         // Restore preferences
+         const savedPreferences = StorageService.getPreferences();
+         if (savedPreferences) {
+            setSelectedGenres(savedPreferences.genres || []);
+            setSelectedLanguages(savedPreferences.languages || []);
+            setSelectedYears(savedPreferences.years || { from: 2010, to: 2025 });
+            setSelectedArtists(savedPreferences.artists || []);
+         }
+
+         if (savedPlaylists?.length > 0) {
+            setCurrentStep('playlist');
+         } else if (inProgress && savedStep && onboardingSteps.includes(savedStep)) {
+            setCurrentStep(savedStep);
+         } else {
+            setCurrentStep('welcome');
+         }
+      } else {
+         setCurrentStep('landing');
       }
-
-      const savedStep = StorageService.getCurrentStep();
-      const inProgress = StorageService.getOnboardingInProgress();
-
-      if (inProgress && savedStep && onboardingSteps.includes(savedStep)) {
-         setCurrentStep(savedStep);
-         return;
-      }
-
-      const savedPlaylists = StorageService.getPlaylists();
-      if (savedPlaylists?.length > 0) {
-         setCurrentStep('playlist');
-         StorageService.setOnboardingInProgress(false);
-         StorageService.clearCurrentStep();
-         return;
-      }
-
-      if (savedUserData) setCurrentStep('welcome');
-      else setCurrentStep('registration');
-
-      StorageService.setOnboardingInProgress(false);
-      StorageService.clearCurrentStep();
    }, []);
 
-   // Toast Helper
    const showToast = (message, type = 'success') => {
       setToast({ message, type });
       setTimeout(() => setToast(null), 3000);
    };
 
+   // --- LOGIN / LOGOUT LOGIC ---
+
+   const handleLogout = () => {
+      if (confirm('Are you sure you want to log out?')) {
+         StorageService.logoutUser();
+         setUserData(null);
+         setLikedSongs([]);
+         setCurrentStep('landing');
+      }
+   };
+
+   const handleLoginSuccess = (user) => {
+      setUserData(user);
+      const playlists = StorageService.getPlaylists();
+      if (playlists && playlists.length > 0) {
+         setCurrentStep('playlist');
+      } else {
+         setCurrentStep('welcome');
+      }
+   };
+
+   // --- REGISTRATION LOGIC ---
+
    const handleRegistrationComplete = (data) => {
-      setUserData(data);
-      StorageService.saveUserData(data);
-      goToStep('welcome');
+      try {
+         StorageService.registerUser(data);
+         setUserData(data);
+         goToStep('welcome');
+      } catch (e) {
+         alert(e.message);
+      }
    };
 
    const handleCustomPlaylist = () => {
@@ -181,64 +205,84 @@ function App() {
       }
    };
 
-   // --- THE FIXED LOGIC: USING SPOTIFY ---
+   // =====================================================
+   //   IMPROVED PLAYLIST GENERATION
+   // =====================================================
+
    const startGenerationProcess = async (type) => {
       setIsLoading(true);
 
       try {
          let tracks = [];
+         const countryCode = userData?.country || 'US';
 
-         // >>>> USING SPOTIFY SERVICE (For Images & Links) <<<<
          if (type === 'default') {
-            const countryCode = userData?.country || 'IL';
+            // Get popular tracks for user's country
             tracks = await getPopularTracksForCountry(countryCode, 50);
          } else {
-            const genreMap = {
-               1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
-               6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
-               11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
-               16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
-               21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
-            };
+            // Custom playlist with REAL filtering
+            console.log('🎵 Creating custom playlist with preferences:', {
+               genres: selectedGenres,
+               languages: selectedLanguages,
+               years: selectedYears,
+               artists: selectedArtists
+            });
 
-            const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
             const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
-            const countryCode = userData?.country || 'US';
 
-            const recommendedTracks = await getRecommendations(
-               genreNames.length > 0 ? genreNames : ['pop'],
-               artistIds,
-               30,
-               countryCode
-            );
+            // Use the improved Spotify Recommendations API with proper filtering
+            const recommendedTracks = await getSpotifyRecommendations({
+               genreIds: selectedGenres.length > 0 ? selectedGenres : [1], // Default to pop if no genre
+               artistIds: artistIds,
+               yearRange: selectedYears,
+               languageIds: selectedLanguages,
+               limit: 40,
+               userCountry: countryCode
+            });
 
             tracks = [...recommendedTracks];
 
+            // If we need more tracks, use search with year filter
+            if (tracks.length < 30) {
+               const additionalTracks = await searchTracksByGenreAndYear(
+                  selectedGenres.length > 0 ? selectedGenres : [1],
+                  selectedYears,
+                  countryCode,
+                  30 - tracks.length
+               );
+
+               tracks = [...tracks, ...additionalTracks];
+            }
+
+            // If artists were selected, add their top tracks
             if (artistIds.length > 0) {
                const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
                   getArtistTopTracks(artistId, countryCode)
                );
                const artistTracksResults = await Promise.all(artistTracksPromises);
-               const artistTracks = artistTracksResults.flat();
+               let artistTracks = artistTracksResults.flat();
 
-               const allTracks = [...tracks, ...artistTracks];
-               const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
-               tracks = uniqueTracks.slice(0, 50);
+               // Filter artist tracks by year range
+               if (selectedYears?.from && selectedYears?.to) {
+                  artistTracks = artistTracks.filter(track => {
+                     if (!track.releaseYear) return true;
+                     return track.releaseYear >= selectedYears.from && track.releaseYear <= selectedYears.to;
+                  });
+               }
+
+               tracks = [...tracks, ...artistTracks];
             }
+
+            // Remove duplicates
+            const uniqueTracks = Array.from(new Map(tracks.map((t) => [t.id, t])).values());
+
+            // Final sort by popularity and limit
+            tracks = uniqueTracks
+               .sort((a, b) => b.popularity - a.popularity)
+               .slice(0, 50);
+
+            console.log(`✅ Generated playlist with ${tracks.length} tracks`);
          }
-
-         /* >>>> DB SERVICE BACKUP (Commented out) <<<<
-            If we ever want to switch to local DB, uncomment this and comment out Spotify logic above.
-            
-            const preferences = { genres: selectedGenres, languages: selectedLanguages, years: selectedYears, artists: selectedArtists };
-            if (type === 'default') {
-                const result = await MusicDbService.generatePlaylist({ genres: [1] });
-                tracks = result.tracks;
-            } else {
-                const result = await MusicDbService.generatePlaylist(preferences);
-                tracks = result.tracks;
-            }
-         */
 
          const playlistData = {
             type,
@@ -311,8 +355,16 @@ function App() {
                   <p className="text-white/70">
                      {playlistType === 'default'
                         ? `Finding top hits in ${userData?.country}...`
-                        : 'Fetching tracks from Spotify...'}
+                        : 'Finding tracks that match your preferences...'}
                   </p>
+                  {playlistType === 'custom' && (
+                     <div className="mt-4 space-y-1 text-white/50 text-sm">
+                        {selectedGenres.length > 0 && <p>🎵 Filtering by {selectedGenres.length} genre(s)</p>}
+                        {selectedLanguages.length > 0 && <p>🌍 Filtering by {selectedLanguages.length} language(s)</p>}
+                        {selectedYears && <p>📅 Year range: {selectedYears.from} - {selectedYears.to}</p>}
+                        {selectedArtists.length > 0 && <p>🎤 Including tracks from {selectedArtists.length} artist(s)</p>}
+                     </div>
+                  )}
                </div>
             </div>
          </div>
@@ -345,6 +397,20 @@ function App() {
 
    return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 relative">
+
+         {/* --- GLOBAL LOGOUT BUTTON --- */}
+         {userData && currentStep !== 'landing' && currentStep !== 'login' && currentStep !== 'registration' && (
+            <div className="absolute top-6 left-6 z-50">
+               <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 bg-white/10 hover:bg-red-500/20 text-white/80 hover:text-red-200 px-4 py-2 rounded-full backdrop-blur-md border border-white/10 transition-all"
+               >
+                  <LogOut className="w-4 h-4" />
+                  <span className="text-sm font-medium">Log out</span>
+               </button>
+            </div>
+         )}
+
          {/* Toast Notification Component */}
          {toast && (
             <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : 'bg-gray-800 text-white'
@@ -358,7 +424,28 @@ function App() {
             </div>
          )}
 
-         {currentStep === 'registration' && <RegistrationScreen onComplete={handleRegistrationComplete} />}
+         {/* --- SCREENS --- */}
+         {currentStep === 'landing' && (
+            <LandingScreen
+               onLoginClick={() => setCurrentStep('login')}
+               onSignupClick={() => setCurrentStep('registration')}
+            />
+         )}
+
+         {currentStep === 'login' && (
+            <LoginScreen
+               onLoginSuccess={handleLoginSuccess}
+               onBack={() => setCurrentStep('landing')}
+            />
+         )}
+
+         {/* Registration with onBack prop */}
+         {currentStep === 'registration' && (
+            <RegistrationScreen
+               onComplete={handleRegistrationComplete}
+               onBack={() => setCurrentStep('landing')}
+            />
+         )}
 
          {currentStep === 'welcome' && (
             <WelcomeScreen

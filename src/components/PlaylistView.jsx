@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
    Music,
    User,
@@ -18,18 +18,21 @@ import {
    Repeat,
    Volume2,
    Heart,
-   ExternalLink
+   ExternalLink,
+   Info
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
-import { MusicDbService } from '../services/musicDbService'; // IMPORTED NEW SERVICE
 import EmptyState from './EmptyState';
 import { buildWhatsAppShareUrl } from '../utils/whatsappShare';
-// Removed unused Spotify imports to avoid confusion/errors
-// import { getPopularTracksForCountry, getRecommendations } from '../services/spotifyService';
+import {
+   getSpotifyRecommendations,
+   getPopularTracksForCountry,
+   searchTracksByGenreAndYear,
+   getArtistTopTracks
+} from '../services/spotifyService';
 
-   const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
-      console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
-console.log("typeof isLiked:", typeof isLiked);
+const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked }) => {
+   console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
 
    // --- DATA STATE ---
    const [userData] = useState(StorageService.getUserData());
@@ -40,6 +43,7 @@ console.log("typeof isLiked:", typeof isLiked);
    const [suggestedTracks, setSuggestedTracks] = useState([]);
    const [suggestedArtists, setSuggestedArtists] = useState([]);
    const [isLoading, setIsLoading] = useState(true);
+   const [hoveredTrack, setHoveredTrack] = useState(null);
 
    // --- AUDIO PLAYER STATE ---
    const [currentTrack, setCurrentTrack] = useState(null);
@@ -51,11 +55,27 @@ console.log("typeof isLiked:", typeof isLiked);
 
    // Player Features
    const [isShuffle, setIsShuffle] = useState(false);
-   const [repeatMode, setRepeatMode] = useState('off'); // 'off', 'all', 'one'
+   const [repeatMode, setRepeatMode] = useState('off');
    const [history, setHistory] = useState([]);
 
    // Audio Reference
    const audioRef = useRef(new Audio());
+
+   // --- GENRE & LANGUAGE MAPS ---
+   const genreNames = {
+      1: 'Pop', 2: 'Rock', 3: 'Hip Hop', 4: 'Rap', 5: 'Electronic',
+      6: 'Jazz', 7: 'Classical', 8: 'R&B', 9: 'Country', 10: 'Latin',
+      11: 'Metal', 12: 'Indie', 13: 'EDM', 14: 'Reggae', 15: 'Blues',
+      16: 'Folk', 17: 'Soul', 18: 'Punk', 19: 'Funk', 20: 'House',
+      21: 'K-Pop', 22: 'Lo-Fi', 23: 'Ambient', 24: 'Afrobeats'
+   };
+
+   const languageNames = {
+      1: 'English', 2: 'Spanish', 3: 'French', 4: 'German', 5: 'Italian',
+      6: 'Portuguese', 7: 'Russian', 8: 'Mandarin', 9: 'Japanese', 10: 'Korean',
+      11: 'Arabic', 12: 'Hebrew', 13: 'Turkish', 14: 'Persian', 15: 'Hindi',
+      40: 'Portuguese (BR)', 41: 'Spanish (MX)'
+   };
 
    // --- INITIAL LOAD ---
    useEffect(() => {
@@ -64,12 +84,10 @@ console.log("typeof isLiked:", typeof isLiked);
       if (playlist?.tracks && playlist.tracks.length > 0) {
          setSuggestedTracks(playlist.tracks);
 
-         // Initialize current track (first one)
          if (!currentTrack && playlist.tracks[0]) {
             setCurrentTrack(playlist.tracks[0]);
          }
 
-         // Extract Artists (Still logic needed for backend, but UI hidden)
          const artistMap = new Map();
          playlist.tracks.forEach((t) => {
             if (t.artistId && !artistMap.has(t.artistId)) {
@@ -88,6 +106,58 @@ console.log("typeof isLiked:", typeof isLiked);
 
       setIsLoading(false);
    }, [playlist]);
+
+   // --- BUILD TRACK TOOLTIP ---
+   const getTrackTooltip = (track) => {
+      if (!preferences || playlist?.type === 'default') {
+         return 'This track is popular in your country';
+      }
+
+      const reasons = [];
+
+      // Genre matching
+      if (preferences.genres && preferences.genres.length > 0) {
+         const selectedGenresList = preferences.genres.map(id => genreNames[id]).filter(Boolean);
+         if (selectedGenresList.length > 0) {
+            reasons.push(`🎵 Genre: ${selectedGenresList.join(', ')}`);
+         }
+      }
+
+      // Language/Market matching
+      if (preferences.languages && preferences.languages.length > 0) {
+         const selectedLangsList = preferences.languages.map(id => languageNames[id]).filter(Boolean);
+         if (selectedLangsList.length > 0) {
+            reasons.push(`🌍 Language: ${selectedLangsList.join(', ')}`);
+         }
+      }
+
+      // Year range matching
+      if (preferences.years) {
+         const { from, to } = preferences.years;
+         if (track.releaseYear && track.releaseYear >= from && track.releaseYear <= to) {
+            reasons.push(`📅 Released: ${track.releaseYear} (within ${from}-${to})`);
+         } else {
+            reasons.push(`📅 Era: ${from} - ${to}`);
+         }
+      }
+
+      // Artist matching
+      if (preferences.artists && preferences.artists.length > 0) {
+         const artistNames = preferences.artists.map(a => a.name);
+         const matchedArtist = artistNames.find(name =>
+            track.artist?.toLowerCase().includes(name.toLowerCase())
+         );
+         if (matchedArtist) {
+            reasons.push(`🎤 Artist: ${matchedArtist} (your selection)`);
+         }
+      }
+
+      if (reasons.length === 0) {
+         return 'Matches your music preferences';
+      }
+
+      return reasons.join('\n');
+   };
 
    // --- AUDIO LOGIC: iTunes Fallback ---
    const getItunesPreview = async (trackTitle, artistName) => {
@@ -145,8 +215,7 @@ console.log("typeof isLiked:", typeof isLiked);
       const onEnded = () => {
          setIsPlaying(false);
          setProgress(0);
-         // Optional: Auto next
-         // handleNext(); 
+         handleNext();
       };
 
       audio.addEventListener('timeupdate', onTimeUpdate);
@@ -177,7 +246,6 @@ console.log("typeof isLiked:", typeof isLiked);
       setIsPlaying(!isPlaying);
    };
 
-   // Big Play Button Handler (Restored)
    const handleStartPlaylist = () => {
       if (suggestedTracks.length > 0) {
          if (!currentTrack) setCurrentTrack(suggestedTracks[0]);
@@ -238,50 +306,106 @@ console.log("typeof isLiked:", typeof isLiked);
       setIsPlaying(true);
    };
 
-   
-
-   // --- HANDLERS: Playlist Management (Restored from Nir) ---
+   // --- HANDLERS: Playlist Refresh (FIXED!) ---
    const handleRefreshPlaylist = async () => {
       try {
          setIsLoading(true);
-         // Simulate refresh logic or fetch new
-         const refreshSeed = Math.floor(Math.random() * 100000);
-         console.log('Refreshing playlist...', refreshSeed);
+         console.log('🔄 Refreshing playlist with preferences:', preferences);
 
          let tracks = [];
-         if (playlist.type === 'default') {
-            const countryCode = userData?.country || 'IL';
-            tracks = await getPopularTracksForCountry(countryCode, 50);
-         } else {
-            // Custom logic reconstruction
-            const genreMap = { 1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic' }; // Simplified
-            const genreNamesArr = (preferences?.genres || []).map(id => genreMap[id] || 'pop');
-            const artistIds = (preferences?.artists || []).map(a => a.id);
+         const countryCode = userData?.country || 'US';
 
-            tracks = await getRecommendations(
-               genreNamesArr.length > 0 ? genreNamesArr : ['pop'],
+         // Get existing track IDs to exclude them
+         const existingTrackIds = new Set(suggestedTracks.map(t => t.id));
+
+         if (playlist.type === 'default') {
+            // Get new popular tracks
+            const allTracks = await getPopularTracksForCountry(countryCode, 100);
+            // Filter out existing tracks and shuffle
+            tracks = allTracks
+               .filter(t => !existingTrackIds.has(t.id))
+               .sort(() => Math.random() - 0.5)
+               .slice(0, 50);
+         } else {
+            // Custom playlist - use saved preferences
+            const genreIds = preferences?.genres || [1]; // Default to pop
+            const languageIds = preferences?.languages || [];
+            const yearRange = preferences?.years || { from: 2010, to: 2025 };
+            const artistIds = (preferences?.artists || []).map(a => a.id).filter(Boolean);
+
+            console.log('🎵 Fetching new recommendations with:', {
+               genreIds, languageIds, yearRange, artistIds
+            });
+
+            // Get recommendations with different offset/seed for variety
+            const recommendedTracks = await getSpotifyRecommendations({
+               genreIds,
                artistIds,
-               50,
-               userData?.country || 'IL'
+               yearRange,
+               languageIds,
+               limit: 80,
+               userCountry: countryCode
+            });
+
+            // Also get tracks via search for more variety
+            const searchTracks = await searchTracksByGenreAndYear(
+               genreIds,
+               yearRange,
+               countryCode,
+               50
             );
+
+            // Combine and filter out existing tracks
+            const allNewTracks = [...recommendedTracks, ...searchTracks];
+            const uniqueNewTracks = Array.from(
+               new Map(allNewTracks.map(t => [t.id, t])).values()
+            );
+
+            tracks = uniqueNewTracks
+               .filter(t => !existingTrackIds.has(t.id))
+               .sort(() => Math.random() - 0.5)
+               .slice(0, 50);
+
+            // If still not enough unique tracks, include some from recommendations
+            if (tracks.length < 20) {
+               console.log('⚠️ Not enough unique tracks, including some overlaps');
+               tracks = uniqueNewTracks
+                  .sort(() => Math.random() - 0.5)
+                  .slice(0, 50);
+            }
          }
 
-         const shuffled = [...tracks].sort(() => 0.5 - Math.random()).slice(0, 50);
-         const newPlaylist = { ...playlist, tracks: shuffled, createdAt: new Date().toISOString() };
+         if (tracks.length === 0) {
+            alert('Could not find new tracks. Try changing your preferences.');
+            setIsLoading(false);
+            return;
+         }
 
+         console.log(`✅ Found ${tracks.length} new tracks`);
+
+         // Create new playlist with the new tracks
+         const newPlaylist = {
+            ...playlist,
+            tracks,
+            createdAt: new Date().toISOString(),
+            refreshedAt: new Date().toISOString()
+         };
+
+         // Save and update state
          StorageService.savePlaylist(newPlaylist);
          setPlaylist(newPlaylist);
-         setSuggestedTracks(shuffled);
-         // Reset player if needed
-         if (shuffled.length > 0) {
-            setCurrentTrack(shuffled[0]);
+         setSuggestedTracks(tracks);
+
+         // Reset player
+         if (tracks.length > 0) {
+            setCurrentTrack(tracks[0]);
             setIsPlaying(false);
             setProgress(0);
          }
 
       } catch (e) {
-         console.error('Error refreshing', e);
-         alert('Failed to refresh playlist');
+         console.error('❌ Error refreshing playlist:', e);
+         alert('Failed to refresh playlist. Please check your internet connection.');
       } finally {
          setIsLoading(false);
       }
@@ -293,9 +417,14 @@ console.log("typeof isLiked:", typeof isLiked);
       StorageService.savePlaylist(updatedPlaylist);
       setPlaylist(updatedPlaylist);
       setSuggestedTracks(filtered);
+
+      // If removed track was playing, switch to next
+      if (currentTrack?.id === trackId && filtered.length > 0) {
+         setCurrentTrack(filtered[0]);
+      }
    };
 
-   // --- HANDLERS: Data & Settings (Restored from Nir) ---
+   // --- HANDLERS: Data & Settings ---
    const refreshState = () => setBlacklist(StorageService.getBlacklist());
    const handleBlockGenre = (genre) => { StorageService.saveBlacklist(`genre:${genre}`); refreshState(); };
    const handleUnblock = (id) => { StorageService.removeFromBlacklist(id); refreshState(); };
@@ -349,11 +478,6 @@ console.log("typeof isLiked:", typeof isLiked);
       );
    }
 
-   const genreNames = {
-      1: 'Pop', 2: 'Rock', 3: 'Hip Hop', 4: 'Rap', 5: 'Electronic',
-      6: 'Jazz', 7: 'Classical', 8: 'R&B', 9: 'Country', 10: 'Latin',
-      11: 'Metal', 12: 'Indie', 13: 'EDM', 14: 'Reggae', 15: 'Blues'
-   };
    const selectedGenreNames = preferences?.genres?.map(id => genreNames[id] || 'Genre').filter(Boolean) || [];
 
    return (
@@ -437,9 +561,9 @@ console.log("typeof isLiked:", typeof isLiked);
                            <button
                               onClick={() => toggleLikedSong(currentTrack)}
                               className={`p-2 rounded-full ${isLiked(currentTrack.id) ? 'text-red-500' : 'text-gray-400'}`}
-                              >
+                           >
                               <Heart className="w-6 h-6" fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'} />
-                              </button>
+                           </button>
 
                         </div>
 
@@ -480,37 +604,71 @@ console.log("typeof isLiked:", typeof isLiked);
                   <div className="flex items-center justify-between mb-6">
                      <h3 className="text-3xl font-bold text-white flex items-center gap-3">
                         <Music className="w-7 h-7 text-purple-400" /> Your Playlist
+                        <span className="text-lg text-white/50 font-normal">({suggestedTracks.length} tracks)</span>
                      </h3>
-                     {/* Restored Buttons */}
                      <div className="flex items-center gap-3">
                         <button onClick={handleStartPlaylist} className="flex items-center gap-2 bg-green-500/80 hover:bg-green-500 text-white px-4 py-2 rounded-full">
                            <Play className="w-5 h-5" /> Play
                         </button>
-                        <button onClick={handleRefreshPlaylist} disabled={isLoading} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full disabled:opacity-50">
-                           <RefreshCw className="w-5 h-5" /> Refresh
+                        <button
+                           onClick={handleRefreshPlaylist}
+                           disabled={isLoading}
+                           className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full disabled:opacity-50"
+                           title="Get new songs matching your preferences"
+                        >
+                           <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                           {isLoading ? 'Loading...' : 'Refresh'}
                         </button>
                      </div>
                   </div>
 
                   <div className="space-y-4">
-                     {suggestedTracks.map((track) => (
-                        <div key={track.id} className={`flex items-center justify-between p-4 rounded-lg transition-colors ${currentTrack?.id === track.id ? 'bg-white/10 border border-purple-500/30' : 'bg-white/5 hover:bg-white/10'}`}>
+                     {suggestedTracks.map((track, index) => (
+                        <div
+                           key={track.id}
+                           className={`relative flex items-center justify-between p-4 rounded-lg transition-colors ${currentTrack?.id === track.id ? 'bg-white/10 border border-purple-500/30' : 'bg-white/5 hover:bg-white/10'}`}
+                           onMouseEnter={() => setHoveredTrack(track.id)}
+                           onMouseLeave={() => setHoveredTrack(null)}
+                        >
+                           {/* Track Number */}
+                           <span className="text-white/30 w-8 text-center font-mono">{index + 1}</span>
+
                            <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
                               {track.image && <img src={track.image} alt="" className="w-14 h-14 rounded object-cover" />}
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                  <p className={`font-semibold text-lg truncate ${currentTrack?.id === track.id ? 'text-purple-300' : 'text-white'}`}>{track.title}</p>
                                  <p className="text-base text-white/60 truncate">{track.artist}</p>
+                                 {track.releaseYear && (
+                                    <p className="text-xs text-white/40">{track.releaseYear}</p>
+                                 )}
                               </div>
                            </div>
+
+                           {/* Tooltip on hover */}
+                           {hoveredTrack === track.id && (
+                              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
+                                 <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
+                                    <div className="flex items-center gap-2 text-purple-300 mb-2">
+                                       <Info className="w-4 h-4" />
+                                       <span className="font-medium text-sm">Why this song?</span>
+                                    </div>
+                                    <p className="text-white/80 text-sm whitespace-pre-line">
+                                       {getTrackTooltip(track)}
+                                    </p>
+                                    {/* Arrow */}
+                                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
+                                 </div>
+                              </div>
+                           )}
+
                            <div className="flex items-center gap-4">
                               <button
                                  onClick={() => toggleLikedSong(track)}
                                  className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
-                                 >
+                              >
                                  <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
-                                 </button>
+                              </button>
 
-                              {/* Restored X Button */}
                               <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
                                  <X className="w-6 h-6" />
                               </button>
@@ -520,7 +678,72 @@ console.log("typeof isLiked:", typeof isLiked);
                   </div>
                </div>
 
-               {/* GENRES & BLACKLIST (Restored) */}
+               {/* PREFERENCES INFO */}
+               {playlist.type === 'custom' && preferences && (
+                  <div className="bg-black/20 rounded-xl p-8">
+                     <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                        <Info className="w-6 h-6 text-purple-400" /> Your Preferences
+                     </h3>
+                     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* Genres */}
+                        {preferences.genres && preferences.genres.length > 0 && (
+                           <div className="bg-white/5 rounded-lg p-4">
+                              <p className="text-white/60 text-sm mb-2">🎵 Genres</p>
+                              <div className="flex flex-wrap gap-2">
+                                 {preferences.genres.map(id => (
+                                    <span key={id} className="bg-purple-500/30 text-purple-200 px-3 py-1 rounded-full text-sm">
+                                       {genreNames[id]}
+                                    </span>
+                                 ))}
+                              </div>
+                           </div>
+                        )}
+
+                        {/* Languages */}
+                        {preferences.languages && preferences.languages.length > 0 && (
+                           <div className="bg-white/5 rounded-lg p-4">
+                              <p className="text-white/60 text-sm mb-2">🌍 Languages</p>
+                              <div className="flex flex-wrap gap-2">
+                                 {preferences.languages.map(id => (
+                                    <span key={id} className="bg-blue-500/30 text-blue-200 px-3 py-1 rounded-full text-sm">
+                                       {languageNames[id]}
+                                    </span>
+                                 ))}
+                              </div>
+                           </div>
+                        )}
+
+                        {/* Years */}
+                        {preferences.years && (
+                           <div className="bg-white/5 rounded-lg p-4">
+                              <p className="text-white/60 text-sm mb-2">📅 Year Range</p>
+                              <span className="bg-amber-500/30 text-amber-200 px-3 py-1 rounded-full text-sm">
+                                 {preferences.years.from} - {preferences.years.to}
+                              </span>
+                           </div>
+                        )}
+
+                        {/* Artists */}
+                        {preferences.artists && preferences.artists.length > 0 && (
+                           <div className="bg-white/5 rounded-lg p-4">
+                              <p className="text-white/60 text-sm mb-2">🎤 Artists</p>
+                              <div className="flex flex-wrap gap-2">
+                                 {preferences.artists.slice(0, 3).map(a => (
+                                    <span key={a.id} className="bg-pink-500/30 text-pink-200 px-3 py-1 rounded-full text-sm">
+                                       {a.name}
+                                    </span>
+                                 ))}
+                                 {preferences.artists.length > 3 && (
+                                    <span className="text-white/50 text-sm">+{preferences.artists.length - 3} more</span>
+                                 )}
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  </div>
+               )}
+
+               {/* GENRES & BLACKLIST */}
                {playlist.type === 'custom' && selectedGenreNames.length > 0 && (
                   <div className="bg-black/20 rounded-xl p-8">
                      <div className="flex items-center gap-4 mb-6">
@@ -555,7 +778,7 @@ console.log("typeof isLiked:", typeof isLiked);
                   </div>
                )}
 
-               {/* BOTTOM ACTIONS (Restored) */}
+               {/* BOTTOM ACTIONS */}
                <div className="mt-10 flex gap-6">
                   <button onClick={handleExportData} className="flex-1 flex items-center justify-center gap-3 bg-white/10 hover:bg-white/20 text-white py-4 rounded-xl transition-colors text-lg">
                      <Download className="w-6 h-6" /> Export Data
