@@ -107,6 +107,14 @@ function App() {
         setSelectedArtists(savedPreferences.artists || []);
       }
 
+      const latestPlaylist = StorageService.getLatestPlaylist();
+      if (!latestPlaylist) {
+        const libraryPlaylists = StorageService.getLibraryPlaylists() || [];
+        if (libraryPlaylists.length > 0) {
+          StorageService.savePlaylist(libraryPlaylists[0]);
+        }
+      }
+
       if (savedPlaylists?.length > 0) {
         setCurrentStep('playlist');
       } else if (inProgress && savedStep && onboardingSteps.includes(savedStep)) {
@@ -180,8 +188,14 @@ function App() {
     loadLikedSongsForUser();
 
     const playlists = StorageService.getPlaylists();
-    const libraryPlaylists = StorageService.getLibraryPlaylists();
-    const hasLibrary = Array.isArray(libraryPlaylists) && libraryPlaylists.length > 0;
+    const libraryPlaylists = StorageService.getLibraryPlaylists() || [];
+    const latestPlaylist = StorageService.getLatestPlaylist();
+
+    if (!latestPlaylist && libraryPlaylists.length > 0) {
+      StorageService.savePlaylist(libraryPlaylists[0]);
+    }
+
+    const hasLibrary = libraryPlaylists.length > 0;
 
     if (jumpToLibraryAfterLogin && hasLibrary) {
       setJumpToLibraryAfterLogin(false);
@@ -443,9 +457,9 @@ function App() {
           >
             <Library className="w-4 h-4" />
             My Library
-            {(hasLibraryPlaylists || likedSongs.length > 0) && (
+            {hasLibraryPlaylists && (
               <span className="bg-pink-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {savedLibraryPlaylists.length + (likedSongs.length > 0 ? 1 : 0)}
+                {savedLibraryPlaylists.length}
               </span>
             )}
           </button>

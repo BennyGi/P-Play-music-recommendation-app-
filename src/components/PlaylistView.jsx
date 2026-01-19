@@ -781,9 +781,6 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                         <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
                            <RefreshCw className="w-5 h-5" /> New Playlist
                         </button>
-                        <button onClick={onGoToLibrary} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
-                           <Library className="w-5 h-5" /> My Library
-                        </button>
                      </div>
                   </div>
 
