@@ -19,8 +19,11 @@ import {
   getSpotifyRecommendations,
   getArtistTopTracks,
   getPopularTracksForCountry,
-  searchTracksByGenreAndYear
+  searchTracksByGenreAndYear,
+  getAccessToken,
+  getUserProfile
 } from './services/spotifyService';
+import { authenticateWithSpotify } from './services/spotifyService';
 
 function App() {
   const onboardingSteps = ['genres', 'languages', 'years', 'artists'];
@@ -39,6 +42,8 @@ function App() {
   const [isComplete, setIsComplete] = useState(false);
   const [playlistType, setPlaylistType] = useState(null);
   const [toast, setToast] = useState(null);
+  const [spotifyProfile, setSpotifyProfile] = useState(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const loadLikedSongsForUser = () => {
     try {
@@ -47,6 +52,18 @@ function App() {
     } catch (e) {
       console.error('Failed to load liked songs:', e);
       setLikedSongs([]);
+    }
+  };
+
+  const fetchSpotifyProfile = async () => {
+    try {
+      const token = getAccessToken();
+      if (!token) return;
+
+      const profile = await getUserProfile(token);
+      if (profile) setSpotifyProfile(profile);
+    } catch (error) {
+      console.log('Failed to fetch Spotify profile:', error);
     }
   };
 
@@ -104,6 +121,33 @@ function App() {
   }, []);
 
   useEffect(() => {
+    fetchSpotifyProfile();
+  }, []);
+
+  const handleConnectSpotify = () => {
+    try {
+      authenticateWithSpotify();
+    } catch (e) {
+      console.log('Failed to start Spotify auth:', e);
+    }
+  };
+
+  const handleStartOver = () => {
+    try {
+      setSelectedGenres([]);
+      setSelectedLanguages([]);
+      setSelectedYears({ from: 2010, to: 2025 });
+      setSelectedArtists([]);
+      setIsComplete(false);
+      setPlaylistType(null);
+      setActiveView('generator');
+      goToStep('welcome');
+    } catch (e) {
+      console.log('Failed to start over:', e);
+    }
+  };
+
+  useEffect(() => {
     if (currentStep !== 'playlist') {
       setActiveView('generator');
     }
@@ -115,12 +159,20 @@ function App() {
   };
 
   const handleLogout = () => {
-    if (confirm('Are you sure you want to log out?')) {
-      StorageService.logoutUser();
-      setUserData(null);
-      setLikedSongs([]);
-      setCurrentStep('landing');
-    }
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = () => {
+    StorageService.logoutUser();
+    setUserData(null);
+    setLikedSongs([]);
+    setCurrentStep('landing');
+    setShowLogoutModal(false);
+  };
+
+  const handleGoToLibrary = () => {
+    setCurrentStep('library');
+    setActiveView('library');
   };
 
   const handleLoginSuccess = (user) => {
@@ -375,21 +427,19 @@ function App() {
       )}
 
       {userData && currentStep === 'playlist' && (
-        <div className="absolute top-6 right-6 z-50 flex gap-2 bg-white/10 backdrop-blur-xl border border-white/10 rounded-full p-1">
+        <div className="absolute top-6 right-6 z-50 flex items-center gap-2 bg-white/10 backdrop-blur-xl border border-white/10 rounded-full p-1">
           <button
             onClick={() => setActiveView('generator')}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
-              activeView === 'generator' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'
-            }`}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${activeView === 'generator' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'
+              }`}
           >
             <Music className="w-4 h-4" />
             Player
           </button>
           <button
             onClick={() => setActiveView('library')}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
-              activeView === 'library' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'
-            }`}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${activeView === 'library' ? 'bg-white text-purple-700 shadow-lg' : 'text-white/80 hover:text-white'
+              }`}
           >
             <Library className="w-4 h-4" />
             My Library
@@ -399,18 +449,34 @@ function App() {
               </span>
             )}
           </button>
+          <div className="flex items-center gap-2 pl-2 ml-1 border-l border-white/10">
+            {spotifyProfile ? (
+              <div className="flex items-center gap-2">
+                {spotifyProfile.images?.[0]?.url && (
+                  <img src={spotifyProfile.images[0].url} alt={spotifyProfile.display_name || 'Spotify User'} className="w-8 h-8 rounded-full object-cover" />
+                )}
+                <span className="text-white text-sm">{spotifyProfile.display_name}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-white/80 text-sm">{userData?.firstName ? userData.firstName : (userData?.email || 'Profile')}</span>
+                <button onClick={handleConnectSpotify} className="text-green-300 hover:text-green-200 border border-green-500/40 px-3 py-1 rounded-full text-xs">
+                  Connect Spotify
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {toast && (
         <div
-          className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${
-            toast.type === 'success'
-              ? 'bg-white text-pink-600'
-              : toast.type === 'error'
+          className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success'
+            ? 'bg-white text-pink-600'
+            : toast.type === 'error'
               ? 'bg-red-500 text-white'
               : 'bg-gray-800 text-white'
-          }`}
+            }`}
         >
           {toast.type === 'success' ? (
             <Heart className="w-6 h-6 fill-pink-500 text-pink-500" />
@@ -418,6 +484,30 @@ function App() {
             <Info className="w-6 h-6" />
           )}
           <p className="font-semibold text-sm md:text-base">{toast.message}</p>
+        </div>
+      )}
+
+      {/* Logout Modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#181818] border border-white/10 p-6 rounded-2xl w-full max-w-md shadow-2xl">
+            <h3 className="text-2xl font-bold text-white mb-2">Log Out</h3>
+            <p className="text-white/80 mb-6">Are you sure you want to log out?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmLogout}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors font-semibold"
+              >
+                Log Out
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -506,6 +596,9 @@ function App() {
               isLiked={isLiked}
               likedSongs={likedSongs}
               showToast={showToast}
+              spotifyProfile={spotifyProfile}
+              onCreateNew={handleStartOver}
+              onGoToLibrary={handleGoToLibrary}
             />
           )}
         </>

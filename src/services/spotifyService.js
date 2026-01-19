@@ -14,6 +14,16 @@ console.log('🔐 Spotify credentials:', {
 let spotifyToken = null;
 let tokenExpiry = null;
 
+// Retrieve a stored user access token (set during Spotify auth flow)
+export const getAccessToken = () => {
+   try {
+      return localStorage.getItem('spotify_access_token');
+   } catch (error) {
+      console.error('❌ getAccessToken error:', error);
+      return null;
+   }
+};
+
 // =====================================================
 //   TOKEN
 // =====================================================
@@ -49,6 +59,33 @@ export const getSpotifyToken = async () => {
    } catch (error) {
       console.error('❌ Token error:', error);
       throw error;
+   }
+};
+
+// =====================================================
+//   USER PROFILE (requires user access token)
+// =====================================================
+
+export const getUserProfile = async (accessToken) => {
+   if (!accessToken) return null;
+
+   try {
+      const response = await fetch('https://api.spotify.com/v1/me', {
+         method: 'GET',
+         headers: {
+            Authorization: `Bearer ${accessToken}`
+         }
+      });
+
+      if (!response.ok) {
+         console.error('❌ getUserProfile failed:', response.status);
+         return null;
+      }
+
+      return await response.json();
+   } catch (error) {
+      console.error('❌ getUserProfile error:', error);
+      return null;
    }
 };
 
@@ -1202,5 +1239,34 @@ export const searchArtistsByGenre = async (genre, limit = 20, offset = 0) => {
    } catch (error) {
       console.error(`Error searching generic genre ${genre}:`, error);
       return [];
+   }
+};
+
+// =====================================================
+//   AUTHENTICATE WITH SPOTIFY (Implicit Grant)
+// =====================================================
+export const authenticateWithSpotify = () => {
+   try {
+      const clientId = SPOTIFY_CLIENT_ID;
+      if (!clientId) {
+         console.error('❌ Missing VITE_SPOTIFY_CLIENT_ID');
+         return;
+      }
+      const redirectUri = typeof window !== 'undefined' ? window.location.origin : '';
+      const scopes = ['user-read-email', 'user-read-private'];
+
+      const params = new URLSearchParams({
+         response_type: 'token',
+         client_id: clientId,
+         redirect_uri: redirectUri,
+         scope: scopes.join(' ')
+      });
+
+      const authUrl = `https://accounts.spotify.com/authorize?${params.toString()}`;
+      if (typeof window !== 'undefined') {
+         window.location.href = authUrl;
+      }
+   } catch (error) {
+      console.error('❌ authenticateWithSpotify error:', error);
    }
 };

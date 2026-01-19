@@ -23,8 +23,7 @@ import {
    Sparkles,
    Save,
    Library,
-   Check,
-   HelpCircle
+   Check
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import EmptyState from './EmptyState';
@@ -37,8 +36,10 @@ import {
    generateMoreFromLiked
 } from '../services/spotifyService';
 
-const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showToast }) => {
-   console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong, isLiked });
+const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSongProp, onToggleLike, isLiked, showToast, spotifyProfile, onNewPlaylist, onGoToLibrary }) => {
+   console.log("PlaylistView props:", { onCreateNew, likedSongs, toggleLikedSong: toggleLikedSongProp, isLiked });
+
+   const toggleLikedSong = toggleLikedSongProp || onToggleLike;
 
    // --- DATA STATE ---
    const [userData] = useState(StorageService.getUserData());
@@ -56,9 +57,18 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
    const [showSaveModal, setShowSaveModal] = useState(false);
    const [playlistName, setPlaylistName] = useState('');
    const [isSaving, setIsSaving] = useState(false);
+   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
 
-   // --- HELP TOOLTIP STATE ---
-   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
+   const areTrackListsEqual = (a, b) => {
+      if (!Array.isArray(a) || !Array.isArray(b)) return false;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+         if (a[i] !== b[i]) return false;
+      }
+      return true;
+   };
+
+
 
    // --- AUDIO PLAYER STATE ---
    const [currentTrack, setCurrentTrack] = useState(null);
@@ -128,6 +138,21 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
          if (showToast) showToast('No tracks to save. Generate a playlist first.', 'error');
          return;
       }
+      // Duplicate check before opening modal
+      try {
+         const existingPlaylists = StorageService.getLibraryPlaylists();
+         const currentIds = suggestedTracks.map(t => t.id);
+         const duplicateFound = (existingPlaylists || []).some(pl => {
+            const ids = (pl?.tracks || []).map(t => t.id);
+            return areTrackListsEqual(currentIds, ids);
+         });
+         if (duplicateFound) {
+            setShowDuplicateModal(true);
+            return;
+         }
+      } catch (e) {
+         console.warn('Duplicate check failed:', e);
+      }
 
       const existingPlaylists = StorageService.getLibraryPlaylists();
       const defaultName = `My Playlist ${existingPlaylists.length + 1}`;
@@ -137,6 +162,22 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
 
    const handleSaveToLibrary = () => {
       if (!suggestedTracks || suggestedTracks.length === 0) return;
+      // Duplicate check prior to save
+      try {
+         const existingPlaylists = StorageService.getLibraryPlaylists();
+         const currentIds = suggestedTracks.map(t => t.id);
+         const duplicateFound = (existingPlaylists || []).some(pl => {
+            const ids = (pl?.tracks || []).map(t => t.id);
+            return areTrackListsEqual(currentIds, ids);
+         });
+         if (duplicateFound) {
+            setShowDuplicateModal(true);
+            setShowSaveModal(false);
+            return;
+         }
+      } catch (e) {
+         console.warn('Duplicate check failed:', e);
+      }
 
       setIsSaving(true);
 
@@ -692,6 +733,24 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
             </div>
          )}
 
+         {/* DUPLICATE MODAL */}
+         {showDuplicateModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+               <div className="bg-[#181818] border border-white/10 p-6 rounded-2xl w-full max-w-md shadow-2xl">
+                  <h3 className="text-2xl font-bold text-white mb-2">Playlist Already Exists</h3>
+                  <p className="text-white/80 mb-6">This playlist is already in your library.</p>
+                  <div className="flex gap-3">
+                     <button
+                        onClick={() => setShowDuplicateModal(false)}
+                        className="flex-1 px-4 py-3 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white rounded-xl transition-colors font-semibold"
+                     >
+                        Close
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
          <div className="max-w-7xl mx-auto">
             <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20 space-y-10">
 
@@ -699,27 +758,31 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
                <div className="bg-gradient-to-br from-pink-500/20 to-purple-500/20 rounded-2xl p-8 border border-white/20">
                   <div className="flex items-center justify-between mb-8">
                      <div className="flex items-center gap-6">
-                        <div className="p-6 bg-gradient-to-br from-pink-500 to-purple-500 rounded-2xl">
-                           <User className="w-12 h-12 text-white" />
+                        <div className="rounded-full p-1 bg-gradient-to-br from-pink-500 to-purple-500 shadow-lg">
+                           {spotifyProfile?.images?.[0]?.url ? (
+                              <img
+                                 src={spotifyProfile.images[0].url}
+                                 alt={spotifyProfile.display_name || 'Spotify user'}
+                                 className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
+                              />
+                           ) : (
+                              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/50 flex items-center justify-center">
+                                 <User className="w-6 h-6 text-white" />
+                              </div>
+                           )}
                         </div>
                         <div>
                            <h1 className="text-5xl font-bold text-white">
-                              {userData?.firstName ? `${userData.firstName} ${userData.lastName}` : 'Your Profile'}
+                              {spotifyProfile?.display_name || (userData?.firstName ? `${userData.firstName} ${userData.lastName}` : 'Your Profile')}
                            </h1>
-                           <p className="text-white/60 text-xl mt-2">
-                              {getPlaylistTypeLabel()}
-                           </p>
                         </div>
                      </div>
                      <div className="flex gap-3">
-                        <button
-                           onClick={handleOpenSaveModal}
-                           className="flex items-center gap-3 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 px-6 py-3 rounded-lg border border-pink-500/30 transition-all"
-                        >
-                           <Save className="w-5 h-5" /> Save to Library
-                        </button>
                         <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
                            <RefreshCw className="w-5 h-5" /> New Playlist
+                        </button>
+                        <button onClick={onGoToLibrary} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
+                           <Library className="w-5 h-5" /> My Library
                         </button>
                      </div>
                   </div>
@@ -867,43 +930,20 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong, isLiked, showT
                            </div>
                         </div>
 
-                        {/* Help button */}
+                        {/* Save to Library moved here */}
                         <button
-                           onClick={() => setShowHelpTooltip(!showHelpTooltip)}
-                           className="p-2 text-white/50 hover:text-white/80 transition-colors"
-                           title="What's the difference?"
+                           onClick={handleOpenSaveModal}
+                           className="flex items-center gap-2 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 px-4 py-2 rounded-full border border-pink-500/30"
                         >
-                           <HelpCircle className="w-5 h-5" />
+                           <Save className="w-5 h-5" /> Save to Library
                         </button>
+
                      </div>
                   </div>
-
-                  {/* Help explanation */}
-                  {showHelpTooltip && (
-                     <div className="mb-6 bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
-                        <div className="flex items-start gap-3">
-                           <Info className="w-5 h-5 text-purple-400 mt-0.5" />
-                           <div>
-                              <p className="text-white font-medium mb-2">What's the difference?</p>
-                              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                                 <div className="bg-white/5 rounded-lg p-3">
-                                    <p className="text-white font-medium flex items-center gap-2 mb-1">
-                                       <RefreshCw className="w-4 h-4" /> Refresh
-                                    </p>
-                                    <p className="text-white/60">Gets new songs based on your <span className="text-purple-300">original preferences</span> (genres, languages, years, artists you selected)</p>
-                                 </div>
-                                 <div className="bg-white/5 rounded-lg p-3">
-                                    <p className="text-white font-medium flex items-center gap-2 mb-1">
-                                       <Sparkles className="w-4 h-4" /> Generate More
-                                    </p>
-                                    <p className="text-white/60">Gets new songs based on <span className="text-pink-300">songs you liked</span> - analyzes your taste and finds similar tracks</p>
-                                 </div>
-                              </div>
-                           </div>
-                           <button onClick={() => setShowHelpTooltip(false)} className="text-white/50 hover:text-white">
-                              <X className="w-5 h-5" />
-                           </button>
-                        </div>
+                  {/* Moved badge: Based on Liked Songs */}
+                  {(playlist?.type === 'liked_based' || playlist?.type === 'liked_songs') && (
+                     <div className="mt-2 mb-4 inline-flex items-center gap-2 bg-pink-500/20 text-pink-200 px-3 py-1 rounded-full text-sm border border-pink-500/30">
+                        <Heart className="w-4 h-4" fill="currentColor" /> Based on Liked Songs
                      </div>
                   )}
 
