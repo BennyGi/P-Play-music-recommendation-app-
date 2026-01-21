@@ -23,7 +23,8 @@ import {
    Sparkles,
    Save,
    Library,
-   Check
+   Check,
+   BarChart2
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import EmptyState from './EmptyState';
@@ -58,6 +59,17 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
    const [playlistName, setPlaylistName] = useState('');
    const [isSaving, setIsSaving] = useState(false);
    const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+
+   // --- MUSIC TRIVIA MODE STATE ---
+   const [isTriviaMode, setIsTriviaMode] = useState(false);
+   const [currentQuestion, setCurrentQuestion] = useState(null);
+   const [score, setScore] = useState(0);
+   const [triviaFeedback, setTriviaFeedback] = useState(null);
+   const [answered, setAnswered] = useState(false);
+   const [selectedAnswerId, setSelectedAnswerId] = useState(null);
+   const [showPlayButton, setShowPlayButton] = useState(false);
+   const [playedTrackIds, setPlayedTrackIds] = useState(new Set());
+   const triviaAudioRef = useRef(null);
 
    const areTrackListsEqual = (a, b) => {
       if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -102,6 +114,198 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
       40: 'Portuguese (BR)', 41: 'Spanish (MX)'
    };
 
+   // --- PLAYLIST DNA HELPERS ---
+   const calculateDecadeDistribution = (tracks) => {
+      const decades = {};
+      tracks.forEach(track => {
+         const year = track.releaseYear || 2020;
+         const decade = Math.floor(year / 10) * 10;
+         decades[decade] = (decades[decade] || 0) + 1;
+      });
+
+      // Sort decades in descending order and get top 3
+      return Object.entries(decades)
+         .sort((a, b) => b[1] - a[1])
+         .slice(0, 3)
+         .map(([decade, count]) => ({
+            decade: `${decade}s`,
+            count,
+            percentage: Math.round((count / tracks.length) * 100)
+         }));
+   };
+
+   const getTopArtists = (tracks) => {
+      const artistCounts = {};
+      tracks.forEach(track => {
+         const artist = track.artist || 'Unknown';
+         artistCounts[artist] = (artistCounts[artist] || 0) + 1;
+      });
+
+      // Get top 3 artists
+      return Object.entries(artistCounts)
+         .sort((a, b) => b[1] - a[1])
+         .slice(0, 3)
+         .map(([name, count]) => ({ name, count }));
+   };
+
+   // --- MUSIC TRIVIA GAME LOGIC ---
+   const getPreviewUrl = (track) => {
+      // Helper function to check multiple property names for preview URL
+      return track?.preview_url || track?.previewUrl || track?.audio || null;
+   };
+   const generateQuestion = async () => {
+      // FIRST STEP: Reset UI state to prevent auto-solve bug
+      setSelectedAnswerId(null);
+      setAnswered(false);
+      setTriviaFeedback(null);
+      setShowPlayButton(false);
+
+      // Strict filtering to remove bad data
+      const badDataPatterns = ['playlist', 'top hits', 'chart', 'best of'];
+
+      const validTracks = suggestedTracks.filter(t => {
+         if (!t || !t.id) return false;
+         if (!t.title || typeof t.title !== 'string' || t.title.length < 2) return false;
+         if (!t.artist || typeof t.artist !== 'string' || t.artist.length < 2) return false;
+         if (t.artist === 'Unknown' || t.artist.includes('Spotify')) return false;
+
+         // Check if title contains bad data patterns
+         const titleLower = t.title.toLowerCase();
+         const artistLower = t.artist.toLowerCase();
+         for (const pattern of badDataPatterns) {
+            if (titleLower.includes(pattern) || artistLower.includes(pattern)) return false;
+         }
+
+         return true;
+      });
+
+      if (validTracks.length < 4) {
+         if (showToast) showToast("Not enough valid songs in this list for Trivia.", "error");
+         setIsTriviaMode(false);
+         return;
+      }
+
+      // STEP A: Filter to get only unplayed tracks for correct answer
+      const unplayedTracks = validTracks.filter(t => !playedTrackIds.has(t.id));
+
+      // STEP B: Check for Game Over condition
+      if (unplayedTracks.length === 0) {
+         if (showToast) showToast(`Game Over! You played all the songs! Final Score: ${score}`, "success");
+         setIsTriviaMode(false);
+         return;
+      }
+
+      // STEP C: Find a Playable "Correct Answer" from UNPLAYED tracks with audio (Spotify or iTunes fallback)
+      let correctTrack = null;
+      let audioUrl = null;
+
+      const maxAttempts = 5;
+      const shuffledForAudio = [...unplayedTracks].sort(() => Math.random() - 0.5);
+
+      for (let i = 0; i < Math.min(maxAttempts, shuffledForAudio.length); i++) {
+         const candidate = shuffledForAudio[i];
+
+         // Check Spotify Preview
+         if (candidate.previewUrl || candidate.preview_url) {
+            correctTrack = candidate;
+            audioUrl = candidate.previewUrl || candidate.preview_url;
+            break;
+         }
+
+         // Fallback: Check iTunes
+         try {
+            const iTunesUrl = await getItunesPreview(candidate.title, candidate.artist);
+            if (iTunesUrl) {
+               correctTrack = candidate;
+               audioUrl = iTunesUrl;
+               break;
+            }
+         } catch (e) {
+            console.log("iTunes check failed for", candidate.title);
+         }
+      }
+
+      if (!correctTrack || !audioUrl) {
+         if (showToast) showToast("Couldn't find a playable song. Try refreshing the playlist.", "error");
+         setIsTriviaMode(false);
+         return;
+      }
+
+      // STEP D: Select 3 Distractors from the FULL valid list (distractors can repeat)
+      const distractors = validTracks
+         .filter(t => t.id !== correctTrack.id)
+         .sort(() => Math.random() - 0.5)
+         .slice(0, 3);
+
+      if (distractors.length < 3) {
+         if (showToast) showToast("Not enough valid songs for distractors.", "error");
+         setIsTriviaMode(false);
+         return;
+      }
+
+      // Build and set question with shuffled options
+      const options = [correctTrack, ...distractors].sort(() => Math.random() - 0.5);
+
+      setCurrentQuestion({
+         correctTrack,
+         audioUrl,
+         options
+      });
+
+      // STEP E: Update history with the new correct track
+      setPlayedTrackIds(prev => new Set(prev).add(correctTrack.id));
+   };
+
+   const handleTriviaAnswer = (selectedTrack) => {
+      // Prevent double-clicks and invalid states
+      if (selectedAnswerId !== null || !currentQuestion) return;
+
+      // Immediately show which track was selected and if it's correct
+      const isCorrect = selectedTrack.id === currentQuestion.correctTrack.id;
+      setSelectedAnswerId(selectedTrack.id);
+
+      // Update score if correct
+      if (isCorrect) {
+         setTriviaFeedback('Correct! 🎉');
+         setScore(prev => prev + 1);
+      } else {
+         setTriviaFeedback(`Wrong! It was ${currentQuestion.correctTrack.artist} - ${currentQuestion.correctTrack.title}`);
+      }
+
+      // Wait 2 seconds, then load next question cleanly
+      setTimeout(() => {
+         generateQuestion();
+      }, 2000);
+   };
+
+   const startTrivia = () => {
+      if (suggestedTracks.length < 4) {
+         if (showToast) showToast('Need at least 4 tracks to play trivia!', 'error');
+         return;
+      }
+      setIsTriviaMode(true);
+      setScore(0);
+      setCurrentQuestion(null);
+      setSelectedAnswerId(null);
+      setShowPlayButton(false);
+      setPlayedTrackIds(new Set()); // Reset played track history for new game
+      generateQuestion(); // This is now async but we don't await here - the useEffect will trigger when currentQuestion updates
+   };
+
+   const exitTrivia = () => {
+      setIsTriviaMode(false);
+      setCurrentQuestion(null);
+      setScore(0);
+      setTriviaFeedback(null);
+      setAnswered(false);
+      setSelectedAnswerId(null);
+      setShowPlayButton(false);
+      if (triviaAudioRef.current) {
+         triviaAudioRef.current.pause();
+         triviaAudioRef.current.currentTime = 0;
+      }
+   };
+
    // --- INITIAL LOAD ---
    useEffect(() => {
       setIsLoading(true);
@@ -131,6 +335,55 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
 
       setIsLoading(false);
    }, [playlist]);
+
+   // --- TRIVIA AUDIO PLAYBACK ---
+   useEffect(() => {
+      if (!isTriviaMode) {
+         // Stop trivia audio when exiting trivia mode
+         if (triviaAudioRef.current) {
+            triviaAudioRef.current.pause();
+            triviaAudioRef.current.currentTime = 0;
+         }
+         return;
+      }
+
+      // Play audio when a new question is generated
+      if (currentQuestion && currentQuestion.audioUrl) {
+         // Use the pre-resolved audio URL (from Spotify or iTunes fallback)
+         const audioUrl = currentQuestion.audioUrl;
+         console.log("TRIVIA: Playing audio with URL:", audioUrl);
+
+         // Pause the main player to avoid conflicts
+         if (audioRef.current) {
+            audioRef.current.pause();
+         }
+
+         // Stop any previous trivia audio
+         if (triviaAudioRef.current) {
+            triviaAudioRef.current.pause();
+            triviaAudioRef.current.currentTime = 0;
+         }
+
+         // Create and play new trivia audio
+         triviaAudioRef.current = new Audio(audioUrl);
+         triviaAudioRef.current.volume = 0.5; // Set to 0.5 instead of full volume
+         console.log("TRIVIA: Created Audio object, attempting to play...");
+
+         triviaAudioRef.current.play()
+            .then(() => {
+               console.log('Trivia audio playing successfully');
+               setShowPlayButton(false);
+            })
+            .catch(e => {
+               console.error('Trivia audio autoplay error:', e);
+               console.error('Failed to play URL:', audioUrl);
+               // If autoplay fails, show manual play button
+               setShowPlayButton(true);
+            });
+      } else if (currentQuestion) {
+         console.warn("TRIVIA: currentQuestion exists but NO audioUrl found:", currentQuestion);
+      }
+   }, [isTriviaMode, currentQuestion?.audioUrl]);
 
    // --- SAVE TO LIBRARY ---
    const handleOpenSaveModal = () => {
@@ -751,6 +1004,88 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
             </div>
          )}
 
+         {/* MUSIC TRIVIA GAME OVERLAY */}
+         {isTriviaMode && currentQuestion && (
+            <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+               {/* Exit Button */}
+               <button
+                  onClick={exitTrivia}
+                  className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-red-500/20 text-white rounded-full transition-colors"
+               >
+                  <X className="w-6 h-6" />
+               </button>
+
+               {/* Score Display */}
+               <div className="mb-8 text-center">
+                  <h1 className="text-5xl font-bold text-white mb-2">🎮 Guess the Song!</h1>
+                  <div className="inline-block bg-gradient-to-r from-purple-600 to-pink-600 rounded-full px-8 py-3 border border-white/20">
+                     <p className="text-3xl font-bold text-white">Score: {score}</p>
+                  </div>
+               </div>
+
+               {/* Manual Play Button (if autoplay blocked) */}
+               {showPlayButton && (
+                  <button
+                     onClick={() => {
+                        if (triviaAudioRef.current) {
+                           triviaAudioRef.current.play().catch(e => console.error("Manual play failed:", e));
+                           setShowPlayButton(false);
+                        }
+                     }}
+                     className="mb-6 flex items-center gap-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white px-6 py-3 rounded-full transition-all"
+                  >
+                     <Play className="w-5 h-5" />
+                     Play Audio
+                  </button>
+               )}
+
+               {/* Answer Options */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl w-full">
+                  {currentQuestion.options.map((track, idx) => {
+                     const isCorrectTrack = track.id === currentQuestion.correctTrack.id;
+                     const isSelected = selectedAnswerId === track.id;
+                     const hasAnswered = selectedAnswerId !== null;
+
+                     // Dynamic button styling based on selection state
+                     let buttonClass = 'bg-white/5 border-white/20 text-white hover:bg-white/10 hover:border-purple-500 cursor-pointer hover:scale-105';
+
+                     if (hasAnswered) {
+                        if (isCorrectTrack) {
+                           // Correct answer always turns GREEN
+                           buttonClass = 'bg-green-500 text-white border-green-400 cursor-default opacity-100';
+                        } else if (isSelected) {
+                           // Selected wrong answer turns RED
+                           buttonClass = 'bg-red-500 text-white border-red-400 cursor-default opacity-100';
+                        } else {
+                           // All other buttons become dimmed
+                           buttonClass = 'bg-white/5 border-white/20 text-white/50 cursor-not-allowed opacity-50';
+                        }
+                     }
+
+                     return (
+                        <button
+                           key={track.id}
+                           onClick={() => selectedAnswerId === null && handleTriviaAnswer(track)}
+                           disabled={selectedAnswerId !== null}
+                           className={`p-6 rounded-2xl backdrop-blur-lg border-2 transition-all transform ${buttonClass}`}
+                        >
+                           <p className="font-semibold text-lg text-center">
+                              {track.artist} - {track.title}
+                           </p>
+                        </button>
+                     );
+                  })}
+               </div>
+
+               {/* Loading indicator when not answered */}
+               {selectedAnswerId === null && (
+                  <div className="mt-8 text-center">
+                     <p className="text-white/60 text-sm">Click an option to answer...</p>
+                  </div>
+               )}
+            </div>
+         )}
+
          <div className="max-w-7xl mx-auto">
             <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20 space-y-10">
 
@@ -781,6 +1116,9 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                         <button onClick={onCreateNew} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg">
                            <RefreshCw className="w-5 h-5" /> New Playlist
                         </button>
+                        <button onClick={startTrivia} className="flex items-center gap-3 bg-purple-600/40 hover:bg-purple-600/60 text-purple-200 px-6 py-3 rounded-lg transition-colors">
+                           <span>🎮</span> Play Music Trivia
+                        </button>
                      </div>
                   </div>
 
@@ -805,6 +1143,61 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                      </div>
                   </div>
                </div>
+
+               {/* PLAYLIST DNA STATS */}
+               {suggestedTracks.length > 0 && (
+                  <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl p-8 border border-white/20">
+                     <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                        <BarChart2 className="w-6 h-6 text-purple-400" /> Playlist DNA
+                     </h3>
+                     <div className="grid md:grid-cols-2 gap-6">
+                        {/* Card 1: Decade Distribution */}
+                        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
+                           <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                              <span>📅</span> Eras
+                           </h4>
+                           <div className="space-y-3">
+                              {calculateDecadeDistribution(suggestedTracks).map((era, idx) => (
+                                 <div key={idx} className="flex items-center gap-3">
+                                    <div className="flex-1">
+                                       <div className="flex justify-between items-center mb-1">
+                                          <span className="text-white/80 font-medium">{era.decade}</span>
+                                          <span className="text-purple-300 font-bold">{era.percentage}%</span>
+                                       </div>
+                                       <div className="w-full bg-white/10 rounded-full h-2">
+                                          <div
+                                             className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all"
+                                             style={{ width: `${era.percentage}%` }}
+                                          />
+                                       </div>
+                                    </div>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+
+                        {/* Card 2: Top Artists */}
+                        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
+                           <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                              <span>🎤</span> Top Artists
+                           </h4>
+                           <div className="space-y-3">
+                              {getTopArtists(suggestedTracks).map((artist, idx) => (
+                                 <div key={idx} className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+                                       {idx + 1}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                       <p className="text-white font-medium truncate">{artist.name}</p>
+                                       <p className="text-white/50 text-sm">{artist.count} track{artist.count > 1 ? 's' : ''}</p>
+                                    </div>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               )}
 
                {/* MUSIC PLAYER */}
                {currentTrack && (

@@ -346,7 +346,10 @@ function App() {
           tracks = [...tracks, ...artistTopTracks];
         }
 
-        const genreTracks = await getSpotifyRecommendations(genres, 20);
+        const genreTracks = await getSpotifyRecommendations({
+          genreIds: genres,
+          limit: 50
+        });
         tracks = [...tracks, ...genreTracks];
 
         const genreYearTracks = await searchTracksByGenreAndYear(genres[0] || 'pop', years.from, years.to);
@@ -365,7 +368,7 @@ function App() {
       const playlist = {
         id: `playlist_${Date.now()}`,
         name: type === 'default' ? 'Popular Playlist' : 'Your Custom Playlist',
-        tracks: unique.slice(0, 25),
+        tracks: unique.slice(0, 50),
         createdAt: new Date().toISOString(),
       };
 
@@ -469,16 +472,8 @@ function App() {
                 {spotifyProfile.images?.[0]?.url && (
                   <img src={spotifyProfile.images[0].url} alt={spotifyProfile.display_name || 'Spotify User'} className="w-8 h-8 rounded-full object-cover" />
                 )}
-                <span className="text-white text-sm">{spotifyProfile.display_name}</span>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-white/80 text-sm">{userData?.firstName ? userData.firstName : (userData?.email || 'Profile')}</span>
-                <button onClick={handleConnectSpotify} className="text-green-300 hover:text-green-200 border border-green-500/40 px-3 py-1 rounded-full text-xs">
-                  Connect Spotify
-                </button>
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       )}
