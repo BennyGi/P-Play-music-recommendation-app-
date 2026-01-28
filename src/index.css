@@ -1,1 +1,27 @@
 @import "tailwindcss";
+
+@theme {
+    /* Your custom animations ported to v4 syntax */
+    --animate-fadeIn: fadeIn 0.5s ease-in;
+    --animate-spin: spin 1s linear infinite;
+    --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+    @keyframes fadeIn {
+        0% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+}
+
+/* Base styles */
+html,
+body {
+    min-height: 100%;
+    background: linear-gradient(to bottom right, #312e81, #6d28d9, #be185d);
+    background-attachment: fixed;
+    margin: 0;
+}
+
+#root {
+    min-height: 100vh;
+    width: 100%;
+}

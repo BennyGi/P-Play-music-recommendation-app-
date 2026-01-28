@@ -55,17 +55,38 @@ function initializeDb() {
 
 // --- API Routes ---
 
-// Save User
+// Save User (Registration) - BLOCKS duplicates
 app.post('/api/users', (req, res) => {
     const { firstName, lastName, email, password, birthDate, country } = req.body;
-    const sql = `INSERT OR REPLACE INTO users (firstName, lastName, email, password, birthDate, country) VALUES (?, ?, ?, ?, ?, ?)`;
 
-    db.run(sql, [firstName, lastName, email, password, birthDate, country], function(err) {
-        if (err) {
-            console.error(err.message);
-            return res.status(500).json({ error: err.message });
+    // Check if user exists first
+    db.get("SELECT id FROM users WHERE email = ?", [email], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (row) {
+            // User exists! Send a specific error code
+            return res.status(409).json({ error: "User already exists" });
         }
-        res.json({ id: this.lastID, message: "User saved successfully" });
+
+        // If not exists, create new
+        const sql = `INSERT INTO users (firstName, lastName, email, password, birthDate, country) VALUES (?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [firstName, lastName, email, password, birthDate, country], function(insertErr) {
+            if (insertErr) {
+                return res.status(500).json({ error: insertErr.message });
+            }
+            res.json({ id: this.lastID, message: "User saved successfully" });
+        });
+    });
+});
+
+// NEW: Simple Login Route
+app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
+    db.get("SELECT * FROM users WHERE email = ? AND password = ?", [email, password], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(401).json({ error: "Invalid credentials" });
+
+        res.json(row); // Send back the full user data
     });
 });
 
