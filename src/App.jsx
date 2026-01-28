@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { CheckCircle, Music, Heart, Info } from 'lucide-react'; // Added Heart & Info imports
+import { CheckCircle, Music, Heart, Info, Database } from 'lucide-react'; // Added Database icon
 import RegistrationScreen from './components/onboarding/RegistrationScreen';
 import WelcomeScreen from './components/onboarding/WelcomeScreen';
 import GenreSelection from './components/onboarding/GenreSelection';
@@ -7,11 +7,13 @@ import LanguageSelection from './components/onboarding/LanguageSelection';
 import YearSelection from './components/onboarding/YearSelection';
 import ArtistSelection from './components/onboarding/ArtistSelection';
 import PlaylistView from './components/PlaylistView';
+import AdminDashboard from './components/AdminDashboard'; // Import AdminDashboard
 import { StorageService } from './utils/storage';
 import Sprint1Complete from './components/Sprint1Complete';
-//new import
+// Services
 import { MusicDbService } from './services/musicDbService';
-//old import
+import { BackendService } from './services/backendService'; // Import BackendService
+// Old import (kept for reference or fallback)
 import { getRecommendations, getArtistTopTracks, getPopularTracksForCountry } from './services/spotifyService';
 
 function App() {
@@ -29,7 +31,10 @@ function App() {
    const [isComplete, setIsComplete] = useState(false);
    const [playlistType, setPlaylistType] = useState(null);
 
-   // --- NEW: Toast State ---
+   // --- Admin State ---
+   const [showAdmin, setShowAdmin] = useState(false);
+
+   // --- Toast State ---
    const [toast, setToast] = useState(null); // { message, type }
 
    const goToStep = (step) => {
@@ -78,7 +83,7 @@ function App() {
       StorageService.clearCurrentStep();
    }, []);
 
-   // --- NEW: Toast Helper ---
+   // --- Toast Helper ---
    const showToast = (message, type = 'success') => {
       setToast({ message, type });
       setTimeout(() => setToast(null), 3000); // Hide after 3 seconds
@@ -87,6 +92,12 @@ function App() {
    const handleRegistrationComplete = (data) => {
       setUserData(data);
       StorageService.saveUserData(data);
+
+      // Save to SQLite Backend
+      BackendService.saveUser(data).then(res => {
+         if(res) console.log("User saved to DB:", res);
+      });
+
       goToStep('welcome');
    };
 
@@ -154,7 +165,6 @@ function App() {
 
    const isLiked = (trackId) => likedSongs.some((t) => t?.id === trackId);
 
-   // --- UPDATED: Toggle Like with Toast ---
    const toggleLikedSong = (track) => {
       const next = StorageService.toggleLike(track);
       setLikedSongs(next);
@@ -172,51 +182,6 @@ function App() {
 
       try {
          let tracks = [];
-         // --- ORIGINAL SPOTIFY LOGIC (PRESERVED) ---
-         // const countryCode = userData?.country || 'IL';
-         // tracks = await getPopularTracksForCountry(countryCode, 50);
-
-         /*
-                  if (type === 'default') {
-                     const countryCode = userData?.country || 'IL';
-                     tracks = await getPopularTracksForCountry(countryCode, 50);
-                  } else {
-                     const genreMap = {
-                        1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
-                        6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
-                        11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
-                        16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
-                        21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
-                     };
-
-                     const genreNames = selectedGenres.map((id) => genreMap[id]).filter(Boolean);
-                     const artistIds = selectedArtists.map((a) => a.id).filter(Boolean);
-                     const countryCode = userData?.country || 'US';
-
-                     const recommendedTracks = await getRecommendations(
-                        genreNames.length > 0 ? genreNames : ['pop'],
-                        artistIds,
-                        30,
-                        countryCode
-                     );
-
-                     tracks = [...recommendedTracks];
-
-                     if (artistIds.length > 0) {
-                        const artistTracksPromises = artistIds.slice(0, 3).map((artistId) =>
-                           getArtistTopTracks(artistId, countryCode)
-                        );
-                        const artistTracksResults = await Promise.all(artistTracksPromises);
-                        const artistTracks = artistTracksResults.flat();
-
-                        const allTracks = [...tracks, ...artistTracks];
-                        const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
-                        tracks = uniqueTracks.slice(0, 50);
-                     }
-                  }
-         */         // === NEW DB SERVICE LOGIC ===
-         // Using MusicDbService to prevent crashes.
-         // Spotify logic below is commented out until API keys are fixed.
 
          const preferences = {
             genres: selectedGenres,
@@ -240,12 +205,24 @@ function App() {
             userData,
             tracks,
             preferences: type === 'custom'
-               ? { genres: selectedGenres, languages: selectedLanguages, years: selectedYears, artists: selectedArtists }
-               : null,
+                ? { genres: selectedGenres, languages: selectedLanguages, years: selectedYears, artists: selectedArtists }
+                : null,
             createdAt: new Date().toISOString()
          };
 
          StorageService.savePlaylist(playlistData);
+
+         // Save to SQLite Backend
+         BackendService.savePlaylist({
+            userEmail: userData?.email,
+            name: type === 'default' ? 'Popular Hits' : 'My Custom Mix',
+            type: type,
+            preferences: playlistData.preferences || {},
+            tracks: tracks
+         }).then(res => {
+            console.log("Playlist saved to DB:", res);
+         });
+
          StorageService.setOnboardingInProgress(false);
          StorageService.clearCurrentStep();
 
@@ -289,130 +266,150 @@ function App() {
       }
    };
 
+   // --- RENDER LOGIC ---
+
+   // 1. Admin Dashboard Check (Early Return)
+   if (showAdmin) {
+      return <AdminDashboard onBack={() => setShowAdmin(false)} />;
+   }
+
+   // 2. Loading Screen
    if (isLoading) {
       return (
-         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex flex-col items-center justify-center p-6 text-center">
-            <div className="bg-white/10 backdrop-blur-xl p-8 rounded-3xl flex flex-col items-center gap-6 shadow-2xl border border-white/20">
-               <div className="relative">
-                  <div className="w-24 h-24 border-4 border-white/20 border-t-pink-500 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                     <Music className="w-8 h-8 text-white/50" />
-                  </div>
-               </div>
-               <div className="space-y-2">
-                  <h2 className="text-3xl font-bold text-white">
-                     {playlistType === 'default' ? 'Creating Your Popular Playlist' : 'Making Your Custom Playlist'}
-                  </h2>
-                  <p className="text-white/70">
-                     {playlistType === 'default'
-                        ? `Finding top hits in ${userData?.country}...`
-                        : 'Fetching tracks from Spotify...'}
-                  </p>
-               </div>
-            </div>
-         </div>
+          <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex flex-col items-center justify-center p-6 text-center">
+             <div className="bg-white/10 backdrop-blur-xl p-8 rounded-3xl flex flex-col items-center gap-6 shadow-2xl border border-white/20">
+                <div className="relative">
+                   <div className="w-24 h-24 border-4 border-white/20 border-t-pink-500 rounded-full animate-spin"></div>
+                   <div className="absolute inset-0 flex items-center justify-center">
+                      <Music className="w-8 h-8 text-white/50" />
+                   </div>
+                </div>
+                <div className="space-y-2">
+                   <h2 className="text-3xl font-bold text-white">
+                      {playlistType === 'default' ? 'Creating Your Popular Playlist' : 'Making Your Custom Playlist'}
+                   </h2>
+                   <p className="text-white/70">
+                      {playlistType === 'default'
+                          ? `Finding top hits in ${userData?.country}...`
+                          : 'Fetching tracks from local DB...'}
+                   </p>
+                </div>
+             </div>
+          </div>
       );
    }
 
+   // 3. Completion Screen
    if (isComplete) {
       return (
-         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex flex-col items-center justify-center p-6 text-center">
-            <div className="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-3xl flex flex-col items-center gap-6 shadow-2xl border border-white/20">
-               <div className="w-24 h-24 bg-gradient-to-br from-pink-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg shadow-pink-500/50 mb-2">
-                  <CheckCircle className="w-12 h-12 text-white" />
-               </div>
-               <div className="space-y-2">
-                  <h2 className="text-4xl font-bold text-white">
-                     {playlistType === 'default' ? 'Popular Playlist Ready!' : 'Custom Playlist Ready!'}
-                  </h2>
-                  <p className="text-white/80">Your Spotify playlist has been created!</p>
-               </div>
-               <button
-                  onClick={handleViewPlaylist}
-                  className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white font-bold py-4 rounded-xl hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 mt-4 shadow-lg"
-               >
-                  View My Playlist
-               </button>
-            </div>
-         </div>
+          <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex flex-col items-center justify-center p-6 text-center">
+             <div className="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-3xl flex flex-col items-center gap-6 shadow-2xl border border-white/20">
+                <div className="w-24 h-24 bg-gradient-to-br from-pink-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg shadow-pink-500/50 mb-2">
+                   <CheckCircle className="w-12 h-12 text-white" />
+                </div>
+                <div className="space-y-2">
+                   <h2 className="text-4xl font-bold text-white">
+                      {playlistType === 'default' ? 'Popular Playlist Ready!' : 'Custom Playlist Ready!'}
+                   </h2>
+                   <p className="text-white/80">Your playlist has been created!</p>
+                </div>
+                <button
+                    onClick={handleViewPlaylist}
+                    className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white font-bold py-4 rounded-xl hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 mt-4 shadow-lg"
+                >
+                   View My Playlist
+                </button>
+             </div>
+          </div>
       );
    }
 
+   // 4. Main App Flow
    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 relative">
-         {/* Toast Notification Component */}
-         {toast && (
-            <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : 'bg-gray-800 text-white'
-               }`}>
-               {toast.type === 'success' ? (
-                  <Heart className="w-6 h-6 fill-pink-500 text-pink-500" />
-               ) : (
-                  <Info className="w-6 h-6" />
-               )}
-               <p className="font-semibold text-sm md:text-base">{toast.message}</p>
-            </div>
-         )}
+       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 relative">
 
-         {currentStep === 'registration' && <RegistrationScreen onComplete={handleRegistrationComplete} />}
+          {/* Admin Toggle Button (Fixed Position) */}
+          <button
+              onClick={() => setShowAdmin(true)}
+              className="fixed bottom-4 left-4 z-50 p-3 bg-black/20 hover:bg-black/40 text-white/30 hover:text-white rounded-full transition-all"
+              title="Open Admin Database"
+          >
+             <Database className="w-5 h-5" />
+          </button>
 
-         {currentStep === 'welcome' && (
-            <WelcomeScreen
-               userData={userData}
-               onCustomPlaylist={handleCustomPlaylist}
-               onDefaultPlaylist={handleDefaultPlaylist}
-            />
-         )}
+          {/* Toast Notification Component */}
+          {toast && (
+              <div className={`fixed bottom-10 right-4 md:right-10 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-white text-pink-600' : 'bg-gray-800 text-white'
+              }`}>
+                 {toast.type === 'success' ? (
+                     <Heart className="w-6 h-6 fill-pink-500 text-pink-500" />
+                 ) : (
+                     <Info className="w-6 h-6" />
+                 )}
+                 <p className="font-semibold text-sm md:text-base">{toast.message}</p>
+              </div>
+          )}
 
-         {currentStep === 'genres' && (
-            <GenreSelection
-               initialSelected={selectedGenres}
-               onContinue={handleGenreContinue}
-               onSkip={handleGenreSkip}
-               onBack={() => goToStep('welcome')}
-            />
-         )}
+          {currentStep === 'registration' && <RegistrationScreen onComplete={handleRegistrationComplete} />}
 
-         {currentStep === 'languages' && (
-            <LanguageSelection
-               initialSelected={selectedLanguages}
-               onContinue={handleLanguageContinue}
-               onSkip={handleLanguageSkip}
-               onBack={() => goToStep('genres')}
-            />
-         )}
+          {currentStep === 'welcome' && (
+              <WelcomeScreen
+                  userData={userData}
+                  onCustomPlaylist={handleCustomPlaylist}
+                  onDefaultPlaylist={handleDefaultPlaylist}
+              />
+          )}
 
-         {currentStep === 'years' && (
-            <YearSelection
-               initialSelected={selectedYears}
-               onContinue={handleYearContinue}
-               onSkip={handleYearSkip}
-               onBack={() => goToStep('languages')}
-            />
-         )}
+          {currentStep === 'genres' && (
+              <GenreSelection
+                  initialSelected={selectedGenres}
+                  onContinue={handleGenreContinue}
+                  onSkip={handleGenreSkip}
+                  onBack={() => goToStep('welcome')}
+              />
+          )}
 
-         {currentStep === 'artists' && (
-            <ArtistSelection
-               initialSelected={selectedArtists}
-               selectedGenres={selectedGenres}
-               selectedLanguages={selectedLanguages}
-               selectedYears={selectedYears}
-               onContinue={handleArtistContinue}
-               onSkip={handleArtistSkip}
-               onBack={() => goToStep('years')}
-            />
-         )}
+          {currentStep === 'languages' && (
+              <LanguageSelection
+                  initialSelected={selectedLanguages}
+                  onContinue={handleLanguageContinue}
+                  onSkip={handleLanguageSkip}
+                  onBack={() => goToStep('genres')}
+              />
+          )}
 
-         {currentStep === 'playlist' && (
-            <PlaylistView
-               onCreateNew={handleCreateNew}
-               likedSongs={likedSongs}
-               toggleLikedSong={toggleLikedSong}
-               isLiked={isLiked}
-            />
-         )}
+          {currentStep === 'years' && (
+              <YearSelection
+                  initialSelected={selectedYears}
+                  onContinue={handleYearContinue}
+                  onSkip={handleYearSkip}
+                  onBack={() => goToStep('languages')}
+              />
+          )}
 
-         {currentStep === 'sprint1complete' && <Sprint1Complete />}
-      </div>
+          {currentStep === 'artists' && (
+              <ArtistSelection
+                  initialSelected={selectedArtists}
+                  selectedGenres={selectedGenres}
+                  selectedLanguages={selectedLanguages}
+                  selectedYears={selectedYears}
+                  onContinue={handleArtistContinue}
+                  onSkip={handleArtistSkip}
+                  onBack={() => goToStep('years')}
+              />
+          )}
+
+          {currentStep === 'playlist' && (
+              <PlaylistView
+                  onCreateNew={handleCreateNew}
+                  likedSongs={likedSongs}
+                  toggleLikedSong={toggleLikedSong}
+                  isLiked={isLiked}
+              />
+          )}
+
+          {currentStep === 'sprint1complete' && <Sprint1Complete />}
+       </div>
    );
 }
 
