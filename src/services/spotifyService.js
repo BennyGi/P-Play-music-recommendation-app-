@@ -606,6 +606,102 @@ export const searchTracksByGenreAndYear = async (genreIds, yearRange, market = '
 };
 
 // =====================================================
+//   SEARCH TRACKS BY COUNTRY/GENRE/YEAR (for surprise element)
+// =====================================================
+
+export const searchTracksByCountryGenreAndYear = async (
+   countryCode,
+   countryAdjective,
+   genreIds,
+   yearRange,
+   limit = 50
+) => {
+   try {
+      const token = await getSpotifyToken();
+      let allTracks = [];
+
+      const genreMap = {
+         1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
+         6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
+         11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
+         16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
+         21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
+      };
+
+      const genres = genreIds.map(id => genreMap[id]).filter(Boolean);
+
+      // Build era keyword if year range is provided
+      const getEraKeyword = (yearFrom, yearTo) => {
+         if (yearFrom >= 1950 && yearTo <= 1959) return '1950s 50s';
+         if (yearFrom >= 1960 && yearTo <= 1969) return '1960s 60s';
+         if (yearFrom >= 1970 && yearTo <= 1979) return '1970s 70s';
+         if (yearFrom >= 1980 && yearTo <= 1989) return '1980s 80s';
+         if (yearFrom >= 1990 && yearTo <= 1999) return '1990s 90s';
+         if (yearFrom >= 2000 && yearTo <= 2009) return '2000s';
+         if (yearFrom >= 2010 && yearTo <= 2019) return '2010s';
+         if (yearFrom >= 2020) return '2020s';
+         return '';
+      };
+
+      const eraKeyword = yearRange ? getEraKeyword(yearRange.from, yearRange.to) : '';
+
+      for (const genre of genres.slice(0, 3)) {
+         const genreWithEra = eraKeyword ? `${eraKeyword} ${genre}` : genre;
+         
+         // Try multiple query variations to get better results
+         const queries = [
+            `${countryAdjective} ${genreWithEra}`,
+            `genre:"${genreWithEra}" ${countryAdjective}`,
+            `${countryAdjective} ${genre}`
+         ];
+
+         for (const queryText of queries) {
+            let query = queryText;
+            
+            if (yearRange?.from && yearRange?.to) {
+               query += ` year:${yearRange.from}-${yearRange.to}`;
+            }
+
+            console.log(`🔍 Searching tracks: ${query} (market: ${countryCode})`);
+
+            const response = await fetch(
+               `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${countryCode}&limit=${Math.ceil(limit / queries.length)}`,
+               { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (response.ok) {
+               const data = await response.json();
+               const tracks = (data.tracks?.items || []).map(track => ({
+                  id: track.id,
+                  title: track.name,
+                  artist: track.artists?.[0]?.name || 'Unknown',
+                  artistId: track.artists?.[0]?.id || '',
+                  image: track.album?.images?.[0]?.url || null,
+                  album: track.album?.name || '',
+                  releaseDate: track.album?.release_date || '',
+                  releaseYear: parseInt(track.album?.release_date?.split('-')[0]) || 0,
+                  duration: Math.floor((track.duration_ms || 0) / 1000),
+                  popularity: track.popularity || 0,
+                  previewUrl: track.preview_url,
+                  spotifyUrl: track.external_urls?.spotify
+               }));
+               allTracks = allTracks.concat(tracks);
+            }
+         }
+      }
+
+      const uniqueTracks = Array.from(new Map(allTracks.map(t => [t.id, t])).values());
+      return uniqueTracks
+         .sort((a, b) => b.popularity - a.popularity)
+         .slice(0, limit);
+
+   } catch (error) {
+      console.error('❌ searchTracksByCountryGenreAndYear error:', error);
+      return [];
+   }
+};
+
+// =====================================================
 //   POPULAR TRACKS FOR COUNTRY
 // =====================================================
 

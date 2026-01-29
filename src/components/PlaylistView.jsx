@@ -24,7 +24,11 @@ import {
    Save,
    Library,
    Check,
-   BarChart2
+   BarChart2,
+   Zap,
+   Globe,
+   Music2,
+   Calendar as CalendarIcon
 } from 'lucide-react';
 import { StorageService } from '../utils/storage';
 import EmptyState from './EmptyState';
@@ -33,6 +37,7 @@ import {
    getSpotifyRecommendations,
    getPopularTracksForCountry,
    searchTracksByGenreAndYear,
+   searchTracksByCountryGenreAndYear,
    getArtistTopTracks,
    generateMoreFromLiked
 } from '../services/spotifyService';
@@ -54,6 +59,14 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
    const [hoveredTrack, setHoveredTrack] = useState(null);
    const [isGeneratingMore, setIsGeneratingMore] = useState(false);
 
+   // --- SURPRISE ELEMENT STATE ---
+   const [surpriseModeEnabled, setSurpriseModeEnabled] = useState(false);
+   const [showSurpriseMenu, setShowSurpriseMenu] = useState(false);
+   const [surpriseLanguageEnabled, setSurpriseLanguageEnabled] = useState(false);
+   const [surpriseGenreEnabled, setSurpriseGenreEnabled] = useState(false);
+   const [surpriseYearEnabled, setSurpriseYearEnabled] = useState(false);
+   const [surpriseTracks, setSurpriseTracks] = useState([]); // Tracks from surprise element
+
    // --- SAVE TO LIBRARY MODAL STATE ---
    const [showSaveModal, setShowSaveModal] = useState(false);
    const [playlistName, setPlaylistName] = useState('');
@@ -70,6 +83,24 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
    const [showPlayButton, setShowPlayButton] = useState(false);
    const [playedTrackIds, setPlayedTrackIds] = useState(new Set());
    const triviaAudioRef = useRef(null);
+   const surpriseMenuRef = useRef(null);
+
+   // Close surprise menu when clicking outside
+   useEffect(() => {
+      const handleClickOutside = (event) => {
+         if (surpriseMenuRef.current && !surpriseMenuRef.current.contains(event.target)) {
+            setShowSurpriseMenu(false);
+         }
+      };
+
+      if (showSurpriseMenu) {
+         document.addEventListener('mousedown', handleClickOutside);
+      }
+
+      return () => {
+         document.removeEventListener('mousedown', handleClickOutside);
+      };
+   }, [showSurpriseMenu]);
 
    const areTrackListsEqual = (a, b) => {
       if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -311,7 +342,16 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
       setIsLoading(true);
 
       if (playlist?.tracks && playlist.tracks.length > 0) {
-         setSuggestedTracks(playlist.tracks);
+         // If playlist has surprise tracks, split them
+         if (playlist.type === 'liked_based_with_surprise') {
+            // First half are liked-based, second half are surprise
+            const midPoint = Math.ceil(playlist.tracks.length / 2);
+            setSuggestedTracks(playlist.tracks.slice(0, midPoint));
+            setSurpriseTracks(playlist.tracks.slice(midPoint));
+         } else {
+            setSuggestedTracks(playlist.tracks);
+            setSurpriseTracks([]);
+         }
 
          if (!currentTrack && playlist.tracks[0]) {
             setCurrentTrack(playlist.tracks[0]);
@@ -330,6 +370,7 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
          setSuggestedArtists(Array.from(artistMap.values()));
       } else {
          setSuggestedTracks([]);
+         setSurpriseTracks([]);
          setSuggestedArtists([]);
       }
 
@@ -764,6 +805,120 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
       }
    };
 
+   // --- HANDLERS: Generate Surprise Songs ---
+   const generateSurpriseSongs = async (excludeIds = []) => {
+      try {
+         if (!preferences) return [];
+
+         const genreMap = {
+            1: 'pop', 2: 'rock', 3: 'hip-hop', 4: 'rap', 5: 'electronic',
+            6: 'jazz', 7: 'classical', 8: 'r-n-b', 9: 'country', 10: 'latin',
+            11: 'metal', 12: 'indie', 13: 'edm', 14: 'reggae', 15: 'blues',
+            16: 'folk', 17: 'soul', 18: 'punk', 19: 'funk', 20: 'house',
+            21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
+         };
+
+         const languageMapFull = {
+            1: { code: 'US', lang: 'English', adj: 'American' },
+            2: { code: 'ES', lang: 'Spanish', adj: 'Spanish' },
+            3: { code: 'FR', lang: 'French', adj: 'French' },
+            4: { code: 'DE', lang: 'German', adj: 'German' },
+            5: { code: 'IT', lang: 'Italian', adj: 'Italian' },
+            6: { code: 'PT', lang: 'Portuguese', adj: 'Portuguese' },
+            7: { code: 'RU', lang: 'Russian', adj: 'Russian' },
+            8: { code: 'CN', lang: 'Mandarin', adj: 'Chinese' },
+            9: { code: 'JP', lang: 'Japanese', adj: 'Japanese' },
+            10: { code: 'KR', lang: 'Korean', adj: 'Korean' },
+            11: { code: 'SA', lang: 'Arabic', adj: 'Arabic' },
+            12: { code: 'IL', lang: 'Hebrew', adj: 'Israeli' },
+            13: { code: 'TR', lang: 'Turkish', adj: 'Turkish' },
+            14: { code: 'IR', lang: 'Persian', adj: 'Iranian' },
+            15: { code: 'IN', lang: 'Hindi', adj: 'Indian' },
+            16: { code: 'IN', lang: 'Punjabi', adj: 'Punjabi' },
+            17: { code: 'PK', lang: 'Urdu', adj: 'Pakistani' },
+            18: { code: 'BD', lang: 'Bengali', adj: 'Bengali' },
+            19: { code: 'IN', lang: 'Tamil', adj: 'Tamil' },
+            20: { code: 'TH', lang: 'Thai', adj: 'Thai' },
+            21: { code: 'VN', lang: 'Vietnamese', adj: 'Vietnamese' },
+            22: { code: 'ID', lang: 'Indonesian', adj: 'Indonesian' },
+            23: { code: 'PH', lang: 'Filipino', adj: 'Filipino' },
+            24: { code: 'MY', lang: 'Malay', adj: 'Malaysian' },
+            40: { code: 'BR', lang: 'Portuguese (BR)', adj: 'Brazilian' },
+            41: { code: 'MX', lang: 'Spanish (MX)', adj: 'Mexican' }
+         };
+
+         // Get genres to use (if surpriseGenreEnabled is false, use selected genres)
+         const genresToUse = preferences.genres || [];
+         
+         // If no genres selected and surpriseGenreEnabled is false, return empty
+         if (genresToUse.length === 0 && !surpriseGenreEnabled) {
+            return [];
+         }
+
+         // Random genres if surpriseGenreEnabled is true, otherwise use selected genres
+         const allGenreIds = Object.keys(genreMap).map(Number);
+         const randomGenres = surpriseGenreEnabled 
+            ? [allGenreIds[Math.floor(Math.random() * allGenreIds.length)]]
+            : genresToUse;
+
+         // Random language if surpriseLanguageEnabled is true
+         const allLanguageIds = Object.keys(languageMapFull).map(Number);
+         let selectedLanguageData;
+         
+         if (surpriseLanguageEnabled) {
+            // Pick random language
+            const randomLanguageId = allLanguageIds[Math.floor(Math.random() * allLanguageIds.length)];
+            selectedLanguageData = languageMapFull[randomLanguageId];
+         } else {
+            // Use selected language
+            const selectedLanguageId = preferences.languages?.[0] || 1;
+            selectedLanguageData = languageMapFull[selectedLanguageId] || languageMapFull[1];
+         }
+
+         // Random year range if surpriseYearEnabled is true
+         const currentYear = new Date().getFullYear();
+         const randomYearRange = surpriseYearEnabled
+            ? {
+                 from: Math.max(1950, currentYear - 50 - Math.floor(Math.random() * 30)),
+                 to: Math.min(currentYear, 1980 + Math.floor(Math.random() * (currentYear - 1980)))
+               }
+            : (preferences.years || { from: 2010, to: currentYear });
+
+         // Ensure from <= to
+         if (randomYearRange.from > randomYearRange.to) {
+            [randomYearRange.from, randomYearRange.to] = [randomYearRange.to, randomYearRange.from];
+         }
+
+         // If surpriseLanguageEnabled, use country-specific search
+         let tracks = [];
+         if (surpriseLanguageEnabled) {
+            // Use country-specific search with adjective
+            tracks = await searchTracksByCountryGenreAndYear(
+               selectedLanguageData.code,
+               selectedLanguageData.adj,
+               randomGenres,
+               randomYearRange,
+               25
+            );
+         } else {
+            // Use regular genre/year search with market
+            tracks = await searchTracksByGenreAndYear(
+               randomGenres,
+               randomYearRange,
+               selectedLanguageData.code,
+               25
+            );
+         }
+         
+         // Filter out excluded tracks
+         const excludeSet = new Set(excludeIds);
+         return tracks.filter(t => t?.id && !excludeSet.has(t.id));
+      } catch (e) {
+         console.error('Error generating surprise songs:', e);
+         return [];
+      }
+   };
+
    // --- HANDLERS: Generate More Songs (uses LIKED SONGS) ---
    const handleGenerateMoreSongs = async () => {
       try {
@@ -780,12 +935,13 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
             (playlist?.tracks || []).map((t) => t?.id).filter(Boolean)
          );
 
+         // Generate songs based on liked songs
          const collected = [];
          const collectedIds = new Set([...alreadyShownIds]);
 
          let rounds = 0;
-         while (collected.length < 50 && rounds < 4) {
-            const needed = 50 - collected.length;
+         while (collected.length < (surpriseModeEnabled ? 25 : 50) && rounds < 4) {
+            const needed = (surpriseModeEnabled ? 25 : 50) - collected.length;
             const batch = await generateMoreFromLiked(
                likedSongs,
                needed,
@@ -798,16 +954,33 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                if (collectedIds.has(t.id)) continue;
                collectedIds.add(t.id);
                collected.push(t);
-               if (collected.length >= 50) break;
+               if (collected.length >= (surpriseModeEnabled ? 25 : 50)) break;
             }
 
             rounds++;
             if (!batch || batch.length === 0) break;
          }
 
-         let finalTracks = collected.slice(0, 50);
+         let finalTracks = collected.slice(0, surpriseModeEnabled ? 25 : 50);
 
-         if (finalTracks.length < 50) {
+         // If surprise mode is enabled, generate surprise songs
+         let surpriseTracksList = [];
+         if (surpriseModeEnabled) {
+            surpriseTracksList = await generateSurpriseSongs(Array.from(collectedIds));
+            
+            // Add surprise tracks to collectedIds to avoid duplicates
+            for (const t of surpriseTracksList) {
+               if (t?.id && !collectedIds.has(t.id)) {
+                  collectedIds.add(t.id);
+               }
+            }
+            
+            // Limit surprise tracks to 25
+            surpriseTracksList = surpriseTracksList.slice(0, 25);
+         }
+
+         // Fill remaining slots if needed (only if not in surprise mode)
+         if (!surpriseModeEnabled && finalTracks.length < 50) {
             const fallback = await getPopularTracksForCountry(countryCode, 80);
             for (const t of fallback || []) {
                if (!t?.id) continue;
@@ -819,29 +992,37 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
             finalTracks = finalTracks.slice(0, 50);
          }
 
-         if (finalTracks.length === 0) {
+         // Combine tracks: liked-based first, then surprise tracks
+         const allTracks = [...finalTracks, ...surpriseTracksList];
+
+         if (allTracks.length === 0) {
             if (showToast) showToast("Couldn't generate songs. Try again.", 'error');
             return;
          }
 
          const newPlaylist = {
             ...playlist,
-            type: 'liked_based',
-            tracks: finalTracks,
+            type: surpriseModeEnabled ? 'liked_based_with_surprise' : 'liked_based',
+            tracks: allTracks,
             createdAt: new Date().toISOString()
          };
 
          StorageService.savePlaylist(newPlaylist);
          setPlaylist(newPlaylist);
          setSuggestedTracks(finalTracks);
+         setSurpriseTracks(surpriseTracksList);
 
-         if (finalTracks[0]) {
-            setCurrentTrack(finalTracks[0]);
+         if (allTracks[0]) {
+            setCurrentTrack(allTracks[0]);
             setIsPlaying(false);
             setProgress(0);
          }
 
-         if (showToast) showToast(`Generated ${finalTracks.length} songs based on your ${likedSongs.length} liked songs!`, 'success');
+         const message = surpriseModeEnabled
+            ? `Generated ${finalTracks.length} songs based on your liked songs + ${surpriseTracksList.length} surprise songs!`
+            : `Generated ${finalTracks.length} songs based on your ${likedSongs.length} liked songs!`;
+         
+         if (showToast) showToast(message, 'success');
 
       } catch (e) {
          console.error(e);
@@ -853,14 +1034,27 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
    };
 
    const handleRemoveTrack = (trackId) => {
-      const filtered = suggestedTracks.filter((t) => t.id !== trackId);
-      const updatedPlaylist = { ...playlist, tracks: filtered };
+      // Remove from suggested tracks
+      const filteredSuggested = suggestedTracks.filter((t) => t.id !== trackId);
+      // Remove from surprise tracks
+      const filteredSurprise = surpriseTracks.filter((t) => t.id !== trackId);
+      
+      // Combine all tracks for playlist
+      const allTracks = [...filteredSuggested, ...filteredSurprise];
+      
+      const updatedPlaylist = { ...playlist, tracks: allTracks };
       StorageService.savePlaylist(updatedPlaylist);
       setPlaylist(updatedPlaylist);
-      setSuggestedTracks(filtered);
+      setSuggestedTracks(filteredSuggested);
+      setSurpriseTracks(filteredSurprise);
 
-      if (currentTrack?.id === trackId && filtered.length > 0) {
-         setCurrentTrack(filtered[0]);
+      // If current track was removed, set new current track
+      if (currentTrack?.id === trackId) {
+         if (allTracks.length > 0) {
+            setCurrentTrack(allTracks[0]);
+         } else {
+            setCurrentTrack(null);
+         }
       }
    };
 
@@ -1297,6 +1491,116 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                            </div>
                         </div>
 
+                        {/* SURPRISE ELEMENT TOGGLE */}
+                        <div className="relative" ref={surpriseMenuRef}>
+                           <button
+                              onClick={() => {
+                                 setSurpriseModeEnabled(!surpriseModeEnabled);
+                                 if (!surpriseModeEnabled) {
+                                    setShowSurpriseMenu(true);
+                                 } else {
+                                    setShowSurpriseMenu(false);
+                                 }
+                              }}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
+                                 surpriseModeEnabled
+                                    ? 'bg-yellow-500/60 hover:bg-yellow-500/80 text-white'
+                                    : 'bg-white/10 hover:bg-white/20 text-white'
+                              }`}
+                              title="Surprise Element"
+                           >
+                              <Zap className={`w-5 h-5 ${surpriseModeEnabled ? 'animate-pulse' : ''}`} />
+                              <span className="text-sm font-medium">Surprise</span>
+                           </button>
+
+                           {/* Surprise Menu */}
+                           {showSurpriseMenu && surpriseModeEnabled && (
+                              <div className="absolute bottom-full left-0 mb-2 bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl z-50 min-w-[200px]">
+                                 <p className="text-white text-sm font-medium mb-3 flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-yellow-400" />
+                                    Surprise Settings
+                                 </p>
+                                 <div className="space-y-3">
+                                    {/* Language Toggle */}
+                                    <button
+                                       onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSurpriseLanguageEnabled(!surpriseLanguageEnabled);
+                                       }}
+                                       className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${
+                                          surpriseLanguageEnabled
+                                             ? 'bg-blue-500/30 text-blue-200'
+                                             : 'bg-white/5 text-white/70 hover:bg-white/10'
+                                       }`}
+                                    >
+                                       <div className="flex items-center gap-2">
+                                          <Globe className="w-4 h-4" />
+                                          <span className="text-sm">Language</span>
+                                       </div>
+                                       <div className={`w-10 h-5 rounded-full transition-all ${
+                                          surpriseLanguageEnabled ? 'bg-blue-500' : 'bg-white/20'
+                                       } relative`}>
+                                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all ${
+                                             surpriseLanguageEnabled ? 'translate-x-5' : ''
+                                          }`}></div>
+                                       </div>
+                                    </button>
+
+                                    {/* Genre Toggle */}
+                                    <button
+                                       onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSurpriseGenreEnabled(!surpriseGenreEnabled);
+                                       }}
+                                       className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${
+                                          surpriseGenreEnabled
+                                             ? 'bg-purple-500/30 text-purple-200'
+                                             : 'bg-white/5 text-white/70 hover:bg-white/10'
+                                       }`}
+                                    >
+                                       <div className="flex items-center gap-2">
+                                          <Music2 className="w-4 h-4" />
+                                          <span className="text-sm">Genre</span>
+                                       </div>
+                                       <div className={`w-10 h-5 rounded-full transition-all ${
+                                          surpriseGenreEnabled ? 'bg-purple-500' : 'bg-white/20'
+                                       } relative`}>
+                                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all ${
+                                             surpriseGenreEnabled ? 'translate-x-5' : ''
+                                          }`}></div>
+                                       </div>
+                                    </button>
+
+                                    {/* Year Range Toggle */}
+                                    <button
+                                       onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSurpriseYearEnabled(!surpriseYearEnabled);
+                                       }}
+                                       className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${
+                                          surpriseYearEnabled
+                                             ? 'bg-amber-500/30 text-amber-200'
+                                             : 'bg-white/5 text-white/70 hover:bg-white/10'
+                                       }`}
+                                    >
+                                       <div className="flex items-center gap-2">
+                                          <CalendarIcon className="w-4 h-4" />
+                                          <span className="text-sm">Year Range</span>
+                                       </div>
+                                       <div className={`w-10 h-5 rounded-full transition-all ${
+                                          surpriseYearEnabled ? 'bg-amber-500' : 'bg-white/20'
+                                       } relative`}>
+                                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all ${
+                                             surpriseYearEnabled ? 'translate-x-5' : ''
+                                          }`}></div>
+                                       </div>
+                                    </button>
+                                 </div>
+                                 <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent border-t-gray-900/95"></div>
+                              </div>
+                           )}
+                        </div>
+
                         {/* GENERATE MORE BUTTON with tooltip */}
                         <div className="relative group">
                            <button
@@ -1311,7 +1615,9 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-gray-900/95 border border-white/20 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                               <p className="text-white text-sm font-medium mb-1">✨ Generate More</p>
                               <p className="text-white/70 text-xs">
-                                 Get new songs based on <span className="text-pink-300">songs you liked</span> (❤️).
+                                 {surpriseModeEnabled
+                                    ? 'Get songs based on your liked songs + surprise songs with random settings!'
+                                    : `Get new songs based on <span className="text-pink-300">songs you liked</span> (❤️).`}
                                  {likedSongs?.length > 0
                                     ? ` You have ${likedSongs.length} liked songs.`
                                     : ' Like some songs first!'}
@@ -1344,56 +1650,185 @@ const PlaylistView = ({ onCreateNew, likedSongs, toggleLikedSong: toggleLikedSon
                      </div>
                   )}
 
-                  <div className="space-y-4">
-                     {suggestedTracks.map((track, index) => (
-                        <div
-                           key={track.id}
-                           className={`relative flex items-center justify-between p-4 rounded-lg transition-colors ${currentTrack?.id === track.id ? 'bg-white/10 border border-purple-500/30' : 'bg-white/5 hover:bg-white/10'}`}
-                           onMouseEnter={() => setHoveredTrack(track.id)}
-                           onMouseLeave={() => setHoveredTrack(null)}
-                        >
-                           <span className="text-white/30 w-8 text-center font-mono">{index + 1}</span>
-
-                           <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
-                              {track.image && <img src={track.image} alt="" className="w-14 h-14 rounded object-cover" />}
-                              <div className="min-w-0 flex-1">
-                                 <p className={`font-semibold text-lg truncate ${currentTrack?.id === track.id ? 'text-purple-300' : 'text-white'}`}>{track.title}</p>
-                                 <p className="text-base text-white/60 truncate">{track.artist}</p>
-                                 {track.releaseYear && (
-                                    <p className="text-xs text-white/40">{track.releaseYear}</p>
-                                 )}
-                              </div>
+                  <div className="space-y-6">
+                     {/* Liked-based songs section */}
+                     {suggestedTracks.length > 0 && (
+                        <div>
+                           <div className="mb-4 flex items-center gap-2">
+                              <Heart className="w-5 h-5 text-pink-400" fill="currentColor" />
+                              <h3 className="text-xl font-bold text-white">Based on Your Liked Songs</h3>
+                              <span className="text-white/60 text-sm">({suggestedTracks.length} songs)</span>
                            </div>
+                           <div className="space-y-4">
+                              {suggestedTracks.map((track, index) => (
+                                 <div
+                                    key={track.id}
+                                    className={`relative flex items-center justify-between p-4 rounded-lg transition-colors ${currentTrack?.id === track.id ? 'bg-white/10 border border-purple-500/30' : 'bg-white/5 hover:bg-white/10'}`}
+                                    onMouseEnter={() => setHoveredTrack(track.id)}
+                                    onMouseLeave={() => setHoveredTrack(null)}
+                                 >
+                                    <span className="text-white/30 w-8 text-center font-mono">{index + 1}</span>
 
-                           {hoveredTrack === track.id && (
-                              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
-                                 <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
-                                    <div className="flex items-center gap-2 text-purple-300 mb-2">
-                                       <Info className="w-4 h-4" />
-                                       <span className="font-medium text-sm">Why this song?</span>
+                                    <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
+                                       {track.image && <img src={track.image} alt="" className="w-14 h-14 rounded object-cover" />}
+                                       <div className="min-w-0 flex-1">
+                                          <p className={`font-semibold text-lg truncate ${currentTrack?.id === track.id ? 'text-purple-300' : 'text-white'}`}>{track.title}</p>
+                                          <p className="text-base text-white/60 truncate">{track.artist}</p>
+                                          {track.releaseYear && (
+                                             <p className="text-xs text-white/40">{track.releaseYear}</p>
+                                          )}
+                                       </div>
                                     </div>
-                                    <p className="text-white/80 text-sm whitespace-pre-line">
-                                       {getTrackTooltip(track)}
-                                    </p>
-                                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
+
+                                    {hoveredTrack === track.id && (
+                                       <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
+                                          <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
+                                             <div className="flex items-center gap-2 text-purple-300 mb-2">
+                                                <Info className="w-4 h-4" />
+                                                <span className="font-medium text-sm">Why this song?</span>
+                                             </div>
+                                             <p className="text-white/80 text-sm whitespace-pre-line">
+                                                {getTrackTooltip(track)}
+                                             </p>
+                                             <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
+                                          </div>
+                                       </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4">
+                                       <button
+                                          onClick={() => toggleLikedSong(track)}
+                                          className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
+                                       >
+                                          <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
+                                       </button>
+
+                                       <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
+                                          <X className="w-6 h-6" />
+                                       </button>
+                                    </div>
                                  </div>
-                              </div>
-                           )}
-
-                           <div className="flex items-center gap-4">
-                              <button
-                                 onClick={() => toggleLikedSong(track)}
-                                 className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
-                              >
-                                 <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
-                              </button>
-
-                              <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
-                                 <X className="w-6 h-6" />
-                              </button>
+                              ))}
                            </div>
                         </div>
-                     ))}
+                     )}
+
+                     {/* Surprise songs section */}
+                     {surpriseTracks.length > 0 && (
+                        <div>
+                           <div className="mb-4 flex items-center gap-2">
+                              <Zap className="w-5 h-5 text-yellow-400" />
+                              <h3 className="text-xl font-bold text-white">Surprise Songs</h3>
+                              <span className="text-white/60 text-sm">({surpriseTracks.length} songs)</span>
+                           </div>
+                           <div className="space-y-4">
+                              {surpriseTracks.map((track, index) => (
+                                 <div
+                                    key={track.id}
+                                    className={`relative flex items-center justify-between p-4 rounded-lg transition-colors border-l-4 border-yellow-500/50 ${currentTrack?.id === track.id ? 'bg-white/10 border border-yellow-500/30' : 'bg-white/5 hover:bg-white/10'}`}
+                                    onMouseEnter={() => setHoveredTrack(track.id)}
+                                    onMouseLeave={() => setHoveredTrack(null)}
+                                 >
+                                    <span className="text-yellow-400/60 w-8 text-center font-mono">{suggestedTracks.length + index + 1}</span>
+
+                                    <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
+                                       {track.image && <img src={track.image} alt="" className="w-14 h-14 rounded object-cover" />}
+                                       <div className="min-w-0 flex-1">
+                                          <p className={`font-semibold text-lg truncate ${currentTrack?.id === track.id ? 'text-yellow-300' : 'text-white'}`}>{track.title}</p>
+                                          <p className="text-base text-white/60 truncate">{track.artist}</p>
+                                          {track.releaseYear && (
+                                             <p className="text-xs text-white/40">{track.releaseYear}</p>
+                                          )}
+                                       </div>
+                                    </div>
+
+                                    {hoveredTrack === track.id && (
+                                       <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
+                                          <div className="bg-gray-900/95 backdrop-blur-lg border border-yellow-500/30 rounded-xl p-4 shadow-2xl">
+                                             <div className="flex items-center gap-2 text-yellow-300 mb-2">
+                                                <Zap className="w-4 h-4" />
+                                                <span className="font-medium text-sm">Surprise Song!</span>
+                                             </div>
+                                             <p className="text-white/80 text-sm whitespace-pre-line">
+                                                This is a surprise song with random settings based on your preferences!
+                                             </p>
+                                             <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
+                                          </div>
+                                       </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4">
+                                       <button
+                                          onClick={() => toggleLikedSong(track)}
+                                          className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
+                                       >
+                                          <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
+                                       </button>
+
+                                       <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
+                                          <X className="w-6 h-6" />
+                                       </button>
+                                    </div>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     )}
+
+                     {/* Fallback: if no sections, show all tracks together */}
+                     {suggestedTracks.length === 0 && surpriseTracks.length === 0 && playlist?.tracks && (
+                        <div className="space-y-4">
+                           {playlist.tracks.map((track, index) => (
+                              <div
+                                 key={track.id}
+                                 className={`relative flex items-center justify-between p-4 rounded-lg transition-colors ${currentTrack?.id === track.id ? 'bg-white/10 border border-purple-500/30' : 'bg-white/5 hover:bg-white/10'}`}
+                                 onMouseEnter={() => setHoveredTrack(track.id)}
+                                 onMouseLeave={() => setHoveredTrack(null)}
+                              >
+                                 <span className="text-white/30 w-8 text-center font-mono">{index + 1}</span>
+
+                                 <div className="flex items-center gap-4 overflow-hidden cursor-pointer flex-1" onClick={() => setCurrentTrack(track)}>
+                                    {track.image && <img src={track.image} alt="" className="w-14 h-14 rounded object-cover" />}
+                                    <div className="min-w-0 flex-1">
+                                       <p className={`font-semibold text-lg truncate ${currentTrack?.id === track.id ? 'text-purple-300' : 'text-white'}`}>{track.title}</p>
+                                       <p className="text-base text-white/60 truncate">{track.artist}</p>
+                                       {track.releaseYear && (
+                                          <p className="text-xs text-white/40">{track.releaseYear}</p>
+                                       )}
+                                    </div>
+                                 </div>
+
+                                 {hoveredTrack === track.id && (
+                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-80">
+                                       <div className="bg-gray-900/95 backdrop-blur-lg border border-white/20 rounded-xl p-4 shadow-2xl">
+                                          <div className="flex items-center gap-2 text-purple-300 mb-2">
+                                             <Info className="w-4 h-4" />
+                                             <span className="font-medium text-sm">Why this song?</span>
+                                          </div>
+                                          <p className="text-white/80 text-sm whitespace-pre-line">
+                                             {getTrackTooltip(track)}
+                                          </p>
+                                          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-gray-900/95"></div>
+                                       </div>
+                                    </div>
+                                 )}
+
+                                 <div className="flex items-center gap-4">
+                                    <button
+                                       onClick={() => toggleLikedSong(track)}
+                                       className={`p-2 ${isLiked(track.id) ? 'text-red-500' : 'text-gray-500 hover:text-rose-500'}`}
+                                    >
+                                       <Heart className="w-6 h-6" fill={isLiked(track.id) ? 'currentColor' : 'none'} />
+                                    </button>
+
+                                    <button onClick={() => handleRemoveTrack(track.id)} className="p-2 text-gray-500 hover:text-red-500 hover:scale-110 transition-all">
+                                       <X className="w-6 h-6" />
+                                    </button>
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     )}
                   </div>
                </div>
 

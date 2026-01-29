@@ -37,18 +37,36 @@ const ArtistSelection = ({
   }, [initialSelected]);
 
   useEffect(() => {
-    fetchArtists(false);
+    // Only fetch if we have at least genres or languages selected
+    if ((selectedGenres && selectedGenres.length > 0) || (selectedLanguages && selectedLanguages.length > 0)) {
+      fetchArtists(false);
+    } else {
+      setLoading(false);
+      setError('Please select genres or languages first.');
+    }
   }, [selectedGenres, selectedLanguages, selectedYears]);
 
   const fetchArtists = async (isRefresh = false) => {
     setLoading(true);
     setError(null);
 
+    // Ensure we have valid data
+    const genres = Array.isArray(selectedGenres) ? selectedGenres : [];
+    const languages = Array.isArray(selectedLanguages) ? selectedLanguages : [];
+    const years = selectedYears || { from: 2010, to: new Date().getFullYear() };
+
+    // If no genres and no languages, show error
+    if (genres.length === 0 && languages.length === 0) {
+      setLoading(false);
+      setError('Please select at least one genre or language.');
+      return;
+    }
+
     try {
       const fetchedArtists = await getArtistsForGenres(
-        selectedGenres,
-        selectedLanguages,
-        selectedYears,
+        genres,
+        languages,
+        years,
         isRefresh ? Math.floor(Math.random() * 100) : 0
       );
 

@@ -99,12 +99,19 @@ function App() {
       const inProgress = StorageService.getOnboardingInProgress();
       const savedPlaylists = StorageService.getPlaylists();
 
+      // Only load preferences if user is continuing onboarding, not for new playlists
       const savedPreferences = StorageService.getPreferences();
-      if (savedPreferences) {
+      if (inProgress && savedPreferences) {
         setSelectedGenres(savedPreferences.genres || []);
         setSelectedLanguages(savedPreferences.languages || []);
         setSelectedYears(savedPreferences.years || { from: 2010, to: 2025 });
         setSelectedArtists(savedPreferences.artists || []);
+      } else {
+        // Clear preferences for new users or when starting fresh
+        setSelectedGenres([]);
+        setSelectedLanguages([]);
+        setSelectedYears({ from: 2010, to: 2025 });
+        setSelectedArtists([]);
       }
 
       const latestPlaylist = StorageService.getLatestPlaylist();
@@ -149,6 +156,8 @@ function App() {
       setIsComplete(false);
       setPlaylistType(null);
       setActiveView('generator');
+      // Clear preferences when starting over
+      StorageService.clearPreferences();
       goToStep('welcome');
     } catch (e) {
       console.log('Failed to start over:', e);
@@ -186,6 +195,17 @@ function App() {
   const handleLoginSuccess = (user) => {
     setUserData(user);
     loadLikedSongsForUser();
+
+    // Clear preferences when a new user logs in (they might be from previous user)
+    // Only keep preferences if user is continuing their own onboarding
+    const inProgress = StorageService.getOnboardingInProgress();
+    if (!inProgress) {
+      StorageService.clearPreferences();
+      setSelectedGenres([]);
+      setSelectedLanguages([]);
+      setSelectedYears({ from: 2010, to: 2025 });
+      setSelectedArtists([]);
+    }
 
     const playlists = StorageService.getPlaylists();
     const libraryPlaylists = StorageService.getLibraryPlaylists() || [];
@@ -225,6 +245,12 @@ function App() {
   const handleCustomPlaylist = () => {
     setIsComplete(false);
     setPlaylistType('custom');
+    // Clear preferences when starting a new custom playlist
+    StorageService.clearPreferences();
+    setSelectedGenres([]);
+    setSelectedLanguages([]);
+    setSelectedYears({ from: 2010, to: 2025 });
+    setSelectedArtists([]);
     StorageService.setOnboardingInProgress(true);
     StorageService.setCurrentStep('genres');
     goToStep('genres');
@@ -309,7 +335,9 @@ function App() {
   };
 
   const handleViewPlaylist = () => {
+    setIsComplete(false);
     setCurrentStep('playlist');
+    setActiveView('generator');
   };
 
   const handleLoadPlaylistFromLibrary = (playlist) => {
@@ -592,6 +620,9 @@ function App() {
           {currentStep === 'artists' && (
             <ArtistSelection
               initialSelected={selectedArtists}
+              selectedGenres={selectedGenres}
+              selectedLanguages={selectedLanguages}
+              selectedYears={selectedYears}
               onContinue={handleArtistContinue}
               onSkip={handleArtistSkip}
               onBack={() => goToStep('years')}
