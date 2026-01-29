@@ -447,11 +447,15 @@ export const getPlaylistTracks = async (playlistId, market = 'US') => {
          { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      if (!response.ok) return [];
+      if (!response.ok) {
+         const errorText = await response.text();
+         console.log(`❌ getPlaylistTracks failed for playlist ${playlistId}: ${response.status} - ${errorText}`);
+         return [];
+      }
 
       const data = await response.json();
-      return (data.items || [])
-         .filter(item => item.track)
+      const tracks = (data.items || [])
+         .filter(item => item.track && item.track.id) // Only valid tracks
          .map(item => ({
             id: item.track.id,
             title: item.track.name,
@@ -466,6 +470,9 @@ export const getPlaylistTracks = async (playlistId, market = 'US') => {
             previewUrl: item.track.preview_url,
             spotifyUrl: item.track.external_urls?.spotify
          }));
+
+      console.log(`✅ getPlaylistTracks: Got ${tracks.length} tracks from playlist ${playlistId}`);
+      return tracks;
    } catch (error) {
       console.error('❌ getPlaylistTracks error:', error);
       return [];
@@ -628,68 +635,115 @@ export const searchTracksByCountryGenreAndYear = async (
          21: 'k-pop', 22: 'chill', 23: 'ambient', 24: 'afrobeat'
       };
 
-      const genres = genreIds.map(id => genreMap[id]).filter(Boolean);
+      // Convert genre IDs to Spotify genre seeds
+      const spotifyGenres = genreIds.map(id => GENRE_ID_TO_SPOTIFY_SEED[id]).filter(Boolean);
 
-      // Build era keyword if year range is provided
-      const getEraKeyword = (yearFrom, yearTo) => {
-         if (yearFrom >= 1950 && yearTo <= 1959) return '1950s 50s';
-         if (yearFrom >= 1960 && yearTo <= 1969) return '1960s 60s';
-         if (yearFrom >= 1970 && yearTo <= 1979) return '1970s 70s';
-         if (yearFrom >= 1980 && yearTo <= 1989) return '1980s 80s';
-         if (yearFrom >= 1990 && yearTo <= 1999) return '1990s 90s';
-         if (yearFrom >= 2000 && yearTo <= 2009) return '2000s';
-         if (yearFrom >= 2010 && yearTo <= 2019) return '2010s';
-         if (yearFrom >= 2020) return '2020s';
-         return '';
-      };
+      // SMART APPROACH: Find artists from that country/genre first
+      // Then use those artists as seeds for Spotify's recommendation API
+      let seedArtists = [];
 
-      const eraKeyword = yearRange ? getEraKeyword(yearRange.from, yearRange.to) : '';
-
-      for (const genre of genres.slice(0, 3)) {
-         const genreWithEra = eraKeyword ? `${eraKeyword} ${genre}` : genre;
-         
-         // Try multiple query variations to get better results
-         const queries = [
-            `${countryAdjective} ${genreWithEra}`,
-            `genre:"${genreWithEra}" ${countryAdjective}`,
+      // Step 1: Search for artists from that country with that genre
+      for (const genre of spotifyGenres.slice(0, 2)) {
+         const searchQueries = [
+            `${countryAdjective} ${genre} artist`,
+            `genre:${genre} ${countryAdjective}`,
             `${countryAdjective} ${genre}`
          ];
 
-         for (const queryText of queries) {
-            let query = queryText;
+         for (const query of searchQueries) {
+            try {
+               const response = await fetch(
+                  `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=artist&market=${countryCode}&limit=10`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+               );
+
+               if (response.ok) {
+                  const data = await response.json();
+                  const artists = (data.artists?.items || [])
+                     .filter(a => a.popularity > 30) // Only popular artists
+                     .slice(0, 5);
+                  
+                  seedArtists = seedArtists.concat(artists.map(a => a.id));
+                  
+                  if (seedArtists.length >= 5) break; // We have enough seeds
+               }
+            } catch (e) {
+               console.log('Artist search error:', e);
+            }
+         }
+
+         if (seedArtists.length >= 5) break;
+      }
+
+      // Remove duplicate artist IDs
+      seedArtists = Array.from(new Set(seedArtists)).slice(0, 5);
+
+      // Step 2: Use Spotify's Recommendation API with found artists + genre
+      if (seedArtists.length > 0 || spotifyGenres.length > 0) {
+         const recommendations = await getRecommendationsEndpoint({
+            market: countryCode,
+            seed_artists: seedArtists.slice(0, 5),
+            seed_genres: spotifyGenres.slice(0, Math.max(0, 5 - seedArtists.length)),
+            limit: Math.min(limit * 2, 100) // Get more to filter by year
+         });
+
+         allTracks = allTracks.concat(recommendations);
+      }
+
+      // Step 3: Filter by year range if provided
+      if (yearRange?.from && yearRange?.to) {
+         allTracks = allTracks.filter(track => {
+            const year = track.releaseYear || 0;
+            return year >= yearRange.from && year <= yearRange.to;
+         });
+      }
+
+      // Step 4: If we don't have enough tracks, search directly with year filter
+      if (allTracks.length < limit / 2) {
+         for (const genre of spotifyGenres.slice(0, 2)) {
+            let query = `genre:${genre}`;
             
             if (yearRange?.from && yearRange?.to) {
                query += ` year:${yearRange.from}-${yearRange.to}`;
             }
 
-            console.log(`🔍 Searching tracks: ${query} (market: ${countryCode})`);
+            try {
+               const response = await fetch(
+                  `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${countryCode}&limit=${Math.ceil((limit - allTracks.length) / 2)}`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+               );
 
-            const response = await fetch(
-               `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${countryCode}&limit=${Math.ceil(limit / queries.length)}`,
-               { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            if (response.ok) {
-               const data = await response.json();
-               const tracks = (data.tracks?.items || []).map(track => ({
-                  id: track.id,
-                  title: track.name,
-                  artist: track.artists?.[0]?.name || 'Unknown',
-                  artistId: track.artists?.[0]?.id || '',
-                  image: track.album?.images?.[0]?.url || null,
-                  album: track.album?.name || '',
-                  releaseDate: track.album?.release_date || '',
-                  releaseYear: parseInt(track.album?.release_date?.split('-')[0]) || 0,
-                  duration: Math.floor((track.duration_ms || 0) / 1000),
-                  popularity: track.popularity || 0,
-                  previewUrl: track.preview_url,
-                  spotifyUrl: track.external_urls?.spotify
-               }));
-               allTracks = allTracks.concat(tracks);
+               if (response.ok) {
+                  const data = await response.json();
+                  const tracks = (data.tracks?.items || []).map(track => ({
+                     id: track.id,
+                     title: track.name,
+                     artist: track.artists?.[0]?.name || 'Unknown',
+                     artistId: track.artists?.[0]?.id || '',
+                     image: track.album?.images?.[0]?.url || null,
+                     album: track.album?.name || '',
+                     releaseDate: track.album?.release_date || '',
+                     releaseYear: parseInt(track.album?.release_date?.split('-')[0]) || 0,
+                     duration: Math.floor((track.duration_ms || 0) / 1000),
+                     popularity: track.popularity || 0,
+                     previewUrl: track.preview_url,
+                     spotifyUrl: track.external_urls?.spotify
+                  }));
+                  
+                  // Filter by year if needed
+                  const filteredTracks = yearRange?.from && yearRange?.to
+                     ? tracks.filter(t => t.releaseYear >= yearRange.from && t.releaseYear <= yearRange.to)
+                     : tracks;
+                  
+                  allTracks = allTracks.concat(filteredTracks);
+               }
+            } catch (e) {
+               console.log('Direct search error:', e);
             }
          }
       }
 
+      // Remove duplicates and sort by popularity
       const uniqueTracks = Array.from(new Map(allTracks.map(t => [t.id, t])).values());
       return uniqueTracks
          .sort((a, b) => b.popularity - a.popularity)
@@ -707,42 +761,234 @@ export const searchTracksByCountryGenreAndYear = async (
 
 export const getPopularTracksForCountry = async (countryCode = 'US', limit = 50) => {
    try {
-      console.log(`🌍 Fetching popular tracks for ${countryCode}`);
+      console.log(`🌍 Fetching popular/trending tracks for ${countryCode}`);
       const token = await getSpotifyToken();
-
-      // Try to get featured playlists for the country first
-      const featuredResponse = await fetch(
-         `https://api.spotify.com/v1/browse/featured-playlists?country=${countryCode}&limit=5`,
-         { headers: { Authorization: `Bearer ${token}` } }
-      );
 
       let allTracks = [];
 
-      if (featuredResponse.ok) {
-         const featuredData = await featuredResponse.json();
-         const playlists = featuredData.playlists?.items || [];
+      // Method 1: Search for "Today's Top Hits" or trending playlists
+      // These are official Spotify playlists that are updated daily
+      const trendingPlaylistQueries = [
+         `Top 50 - ${countryCode}`,
+         `Today's Top Hits`,
+         `Global Top 50`,
+         `Viral 50`,
+         `trending`,
+         `chart`
+      ];
 
-         // Get tracks from first 2 featured playlists
-         for (const playlist of playlists.slice(0, 2)) {
-            const tracks = await getPlaylistTracks(playlist.id, countryCode);
-            allTracks = allTracks.concat(tracks);
+      for (const query of trendingPlaylistQueries.slice(0, 3)) {
+         try {
+            const playlistResponse = await fetch(
+               `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&market=${countryCode}&limit=5`,
+               { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (playlistResponse.ok) {
+               const playlistData = await playlistResponse.json();
+               const playlists = (playlistData.playlists?.items || [])
+                  .filter(p => p.name.toLowerCase().includes('top') || 
+                              p.name.toLowerCase().includes('chart') ||
+                              p.name.toLowerCase().includes('trending') ||
+                              p.name.toLowerCase().includes('viral'))
+                  .slice(0, 2);
+
+               for (const playlist of playlists) {
+                  try {
+                     const tracks = await getPlaylistTracks(playlist.id, countryCode);
+                     allTracks = allTracks.concat(tracks);
+                     console.log(`✅ Got ${tracks.length} tracks from playlist: ${playlist.name}`);
+                     if (allTracks.length >= limit) break;
+                  } catch (e) {
+                     console.log(`Could not fetch playlist ${playlist.name}:`, e);
+                  }
+               }
+            }
+         } catch (e) {
+            console.log(`Search error for "${query}":`, e);
+         }
+
+         if (allTracks.length >= limit) break;
+      }
+
+      // Method 2: Get tracks by searching for popular/trending tracks directly
+      // Search for recent popular tracks (2023-2024)
+      if (allTracks.length < limit) {
+         const currentYear = new Date().getFullYear();
+         const trackSearchQueries = [
+            `year:${currentYear}`, // Current year
+            `year:${currentYear - 1}`, // Last year
+            `tag:new`,
+            `tag:hipster`, // Alternative popular
+            `isrc` // Any track with ISRC (most tracks have this)
+         ];
+
+         for (const query of trackSearchQueries.slice(0, 3)) {
+            try {
+               const response = await fetch(
+                  `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${countryCode}&limit=50`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+               );
+
+               if (response.ok) {
+                  const data = await response.json();
+                  const tracks = (data.tracks?.items || [])
+                     .filter(t => {
+                        // Only very popular tracks (popularity > 50) or recent (2023-2024)
+                        const year = parseInt(t.album?.release_date?.split('-')[0]) || 0;
+                        return t.popularity > 50 || (year >= currentYear - 1 && t.popularity > 30);
+                     })
+                     .map(track => ({
+                        id: track.id,
+                        title: track.name,
+                        artist: track.artists?.[0]?.name || 'Unknown',
+                        artistId: track.artists?.[0]?.id || '',
+                        image: track.album?.images?.[0]?.url || null,
+                        album: track.album?.name || '',
+                        releaseDate: track.album?.release_date || '',
+                        releaseYear: parseInt(track.album?.release_date?.split('-')[0]) || 0,
+                        duration: Math.floor((track.duration_ms || 0) / 1000),
+                        popularity: track.popularity || 0,
+                        previewUrl: track.preview_url,
+                        spotifyUrl: track.external_urls?.spotify
+                     }));
+
+                  allTracks = allTracks.concat(tracks);
+                  console.log(`✅ Got ${tracks.length} tracks from search: ${query}`);
+                  if (allTracks.length >= limit * 2) break; // Get more to filter
+               }
+            } catch (e) {
+               console.log(`Track search error for "${query}":`, e);
+            }
          }
       }
 
-      // Also search for popular/trending tracks
-      const searchQueries = ['Top Hits', 'chart'];
-      for (const q of searchQueries) {
-         const tracks = await searchTracks(q, countryCode, 20);
-         allTracks = allTracks.concat(tracks);
+      // Method 3: Get top tracks from popular artists in the country
+      if (allTracks.length < limit) {
+         try {
+            // Search for popular artists
+            const artistQueries = [
+               `popular artist`,
+               `trending artist`,
+               `chart artist`
+            ];
+
+            for (const query of artistQueries.slice(0, 2)) {
+               try {
+                  const artistResponse = await fetch(
+                     `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=artist&market=${countryCode}&limit=15`,
+                     { headers: { Authorization: `Bearer ${token}` } }
+                  );
+
+                  if (artistResponse.ok) {
+                     const artistsData = await artistResponse.json();
+                     const artists = (artistsData.artists?.items || [])
+                        .filter(a => a.popularity > 60) // Very popular artists
+                        .slice(0, 10);
+
+                     for (const artist of artists) {
+                        try {
+                           const topTracks = await getArtistTopTracks(artist.id, countryCode);
+                           // Filter to only recent tracks (last 2 years)
+                           const currentYear = new Date().getFullYear();
+                           const recentTracks = topTracks
+                              .filter(t => t.releaseYear >= currentYear - 2)
+                              .slice(0, 2);
+                           allTracks = allTracks.concat(recentTracks);
+                           if (allTracks.length >= limit * 1.5) break;
+                        } catch (e) {
+                           console.log(`Could not get tracks for artist ${artist.name}:`, e);
+                        }
+                     }
+                  }
+               } catch (e) {
+                  console.log(`Artist search error for "${query}":`, e);
+               }
+
+               if (allTracks.length >= limit * 1.5) break;
+            }
+         } catch (e) {
+            console.log('Could not fetch popular artists:', e);
+         }
       }
 
-      // Remove duplicates and sort by popularity
+      // Remove duplicates and sort by popularity (most popular first)
       const uniqueTracks = Array.from(new Map(allTracks.map((t) => [t.id, t])).values());
       const sorted = uniqueTracks
          .sort((a, b) => b.popularity - a.popularity)
          .slice(0, limit);
 
-      console.log('✅ Got', sorted.length, 'popular tracks');
+      console.log(`✅ Got ${sorted.length} popular/trending tracks for ${countryCode}`);
+      
+      // If we still don't have enough tracks, use Spotify's recommendation API with popular genres
+      if (sorted.length < limit / 2) {
+         console.log('⚠️ Not enough tracks, using recommendation API with popular genres...');
+         try {
+            // Use popular genres to get trending recommendations
+            const popularGenres = ['pop', 'hip-hop', 'rock', 'dance', 'electronic'];
+            const recommendations = await getRecommendationsEndpoint({
+               market: countryCode,
+               seed_genres: popularGenres.slice(0, 5),
+               limit: Math.min(limit, 100)
+            });
+
+            // Filter to only very popular tracks
+            const popularRecommendations = recommendations
+               .filter(t => t.popularity > 60)
+               .slice(0, limit - sorted.length);
+
+            sorted.push(...popularRecommendations);
+            // Re-sort by popularity
+            sorted.sort((a, b) => b.popularity - a.popularity);
+            console.log(`✅ Added ${popularRecommendations.length} tracks from recommendations`);
+         } catch (e) {
+            console.log('Recommendation API fallback error:', e);
+         }
+      }
+
+      // Final fallback: Get any tracks sorted by popularity
+      if (sorted.length === 0) {
+         console.warn('⚠️ No tracks found! Trying final fallback...');
+         try {
+            // Search for common words that will return popular tracks
+            const fallbackQueries = ['love', 'you', 'the', 'a', 'i'];
+            for (const query of fallbackQueries) {
+               const fallbackResponse = await fetch(
+                  `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${countryCode}&limit=50`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+               );
+               if (fallbackResponse.ok) {
+                  const data = await fallbackResponse.json();
+                  const fallbackTracks = (data.tracks?.items || [])
+                     .filter(t => t.popularity > 50) // Only popular
+                     .sort((a, b) => b.popularity - a.popularity)
+                     .slice(0, limit)
+                     .map(track => ({
+                        id: track.id,
+                        title: track.name,
+                        artist: track.artists?.[0]?.name || 'Unknown',
+                        artistId: track.artists?.[0]?.id || '',
+                        image: track.album?.images?.[0]?.url || null,
+                        album: track.album?.name || '',
+                        releaseDate: track.album?.release_date || '',
+                        releaseYear: parseInt(track.album?.release_date?.split('-')[0]) || 0,
+                        duration: Math.floor((track.duration_ms || 0) / 1000),
+                        popularity: track.popularity || 0,
+                        previewUrl: track.preview_url,
+                        spotifyUrl: track.external_urls?.spotify
+                     }));
+                  
+                  if (fallbackTracks.length > 0) {
+                     console.log(`✅ Fallback found ${fallbackTracks.length} tracks`);
+                     return fallbackTracks;
+                  }
+               }
+            }
+         } catch (e) {
+            console.error('Final fallback also failed:', e);
+         }
+      }
+
       return sorted;
    } catch (error) {
       console.error('❌ getPopularTracksForCountry error:', error);
